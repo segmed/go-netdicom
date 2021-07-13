@@ -387,6 +387,9 @@ type ConnectionState struct {
 	// TLS connection state. It is nonempty only when the connection is set up
 	// over TLS.
 	TLS tls.ConnectionState
+
+	// Remote network address.
+	RemoteAddr net.Addr
 }
 
 // CEchoCallback implements C-ECHO callback. It typically just returns
@@ -482,6 +485,7 @@ func getConnState(conn net.Conn) (cs ConnectionState) {
 	if ok {
 		cs.TLS = tlsConn.ConnectionState()
 	}
+	cs.RemoteAddr = conn.RemoteAddr()
 	return
 }
 
