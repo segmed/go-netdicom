@@ -15,6 +15,9 @@ type serviceDispatcher struct {
 
 	mu sync.Mutex
 
+	//assure that serviceDispatcher is closed once
+	closeOnce sync.Once
+
 	// Set of active DIMSE commands running. Keys are message IDs.
 	activeCommands map[dimse.MessageID]*serviceCommandState // guarded by mu
 
@@ -162,11 +165,13 @@ func (disp *serviceDispatcher) handleEvent(event upcallEvent) {
 
 // Must be called exactly once to shut down the dispatcher.
 func (disp *serviceDispatcher) close() {
-	disp.mu.Lock()
-	for _, cs := range disp.activeCommands {
-		close(cs.upcallCh)
-	}
-	disp.mu.Unlock()
+	disp.closeOnce.Do(func() {
+		disp.mu.Lock()
+		for _, cs := range disp.activeCommands {
+			close(cs.upcallCh)
+		}
+		disp.mu.Unlock()
+	})
 	// TODO(saito): prevent new command from launching.
 }
 
