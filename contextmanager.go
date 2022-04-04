@@ -50,7 +50,7 @@ type contextManager struct {
 // Create an empty contextManager
 func newContextManager(label string) *contextManager {
 	c := &contextManager{
-		label: label,
+		label:                            label,
 		contextIDToAbstractSyntaxNameMap: make(map[byte]*contextManagerEntry),
 		abstractSyntaxNameToContextIDMap: make(map[string]*contextManagerEntry),
 		peerMaxPDUSize:                   16384, // The default value used by Osirix & pynetdicom.
@@ -150,7 +150,9 @@ func (m *contextManager) onAssociateRequest(requestItems []pdu.SubItem) ([]pdu.S
 			for _, subItem := range ri.Items {
 				switch c := subItem.(type) {
 				case *pdu.UserInformationMaximumLengthItem:
-					m.peerMaxPDUSize = int(c.MaximumLengthReceived)
+					if int(c.MaximumLengthReceived) > 0 {
+						m.peerMaxPDUSize = int(c.MaximumLengthReceived)
+					}
 				case *pdu.ImplementationClassUIDSubItem:
 					m.peerImplementationClassUID = c.Name
 				case *pdu.ImplementationVersionNameSubItem:
