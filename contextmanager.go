@@ -234,7 +234,9 @@ func (m *contextManager) onAssociateResponse(responses []pdu.SubItem) error {
 			for _, subItem := range ri.Items {
 				switch c := subItem.(type) {
 				case *pdu.UserInformationMaximumLengthItem:
-					m.peerMaxPDUSize = int(c.MaximumLengthReceived)
+					if int(c.MaximumLengthReceived) > 0 {
+						m.peerMaxPDUSize = int(c.MaximumLengthReceived)
+					}
 				case *pdu.ImplementationClassUIDSubItem:
 					m.peerImplementationClassUID = c.Name
 				case *pdu.ImplementationVersionNameSubItem:
