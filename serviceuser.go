@@ -75,6 +75,9 @@ type ServiceUserParams struct {
 	// spec is particularly moronic here, since we could just have specified
 	// the transfer syntax per data sent.
 	TransferSyntaxes []string
+
+	// Maximum PDU receive size (in bytes)
+	MaxPDUSize uint32
 }
 
 func validateServiceUserParams(params *ServiceUserParams) error {

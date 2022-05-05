@@ -305,15 +305,6 @@ func main() {
 	if err != nil {
 		log.Panicf("Failed to parse -remote-ae flag: %v", err)
 	}
-	datasets, err := listDicomFiles(*dirFlag)
-	if err != nil {
-		log.Panicf("Failed to list DICOM files in %s: %v", *dirFlag, err)
-	}
-	ss := server{
-		mu:       &sync.Mutex{},
-		datasets: datasets,
-	}
-	log.Printf("Listening on %s", port)
 
 	var tlsConfig *tls.Config
 	if *tlsKeyFlag != "" {
@@ -334,6 +325,20 @@ func main() {
 			tlsConfig.BuildNameToCertificate()
 		}
 	}
+
+	runSCP(port, *dirFlag, remoteAEs, tlsConfig)
+}
+
+func runSCP(port string, dir string, remoteAEs map[string]string, tlsConfig *tls.Config) {
+	datasets, err := listDicomFiles(dir)
+	if err != nil {
+		log.Panicf("Failed to list DICOM files in %s: %v", *dirFlag, err)
+	}
+	ss := server{
+		mu:       &sync.Mutex{},
+		datasets: datasets,
+	}
+	log.Printf("Listening on %s", port)
 
 	params := netdicom.ServiceProviderParams{
 		AETitle:   *aeFlag,
