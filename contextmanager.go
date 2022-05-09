@@ -64,7 +64,7 @@ func newContextManager(label string) *contextManager {
 // maxPDUSize is the maximum PDU size, in bytes, that the clients is willing to
 // receive. maxPDUSize is encoded in one of the items.
 func (m *contextManager) generateAssociateRequest(
-	sopClassUIDs []string, transferSyntaxUIDs []string) []pdu.SubItem {
+	sopClassUIDs []string, transferSyntaxUIDs []string, maxPDUSize uint32) []pdu.SubItem {
 	items := []pdu.SubItem{
 		&pdu.ApplicationContextItem{
 			Name: pdu.DICOMApplicationContextItemName,
@@ -90,7 +90,7 @@ func (m *contextManager) generateAssociateRequest(
 	items = append(items,
 		&pdu.UserInformationItem{
 			Items: []pdu.SubItem{
-				&pdu.UserInformationMaximumLengthItem{uint32(DefaultMaxPDUSize)},
+				&pdu.UserInformationMaximumLengthItem{maxPDUSize},
 				&pdu.ImplementationClassUIDSubItem{dicom.GoDICOMImplementationClassUID},
 				&pdu.ImplementationVersionNameSubItem{dicom.GoDICOMImplementationVersionName}}})
 

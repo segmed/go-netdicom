@@ -164,7 +164,9 @@ var actionAe2 = &stateAction{"AE-2", "Connection established on the user side. S
 		go networkReaderThread(sm.netCh, event.conn, DefaultMaxPDUSize, sm.label)
 		items := sm.contextManager.generateAssociateRequest(
 			sm.userParams.SOPClasses,
-			sm.userParams.TransferSyntaxes)
+			sm.userParams.TransferSyntaxes,
+			sm.userParams.MaxPDUSize,
+		)
 		pdu := &pdu.AAssociate{
 			Type:            pdu.TypeAAssociateRq,
 			ProtocolVersion: pdu.CurrentProtocolVersion,
