@@ -52,6 +52,8 @@ type ServiceUser struct {
 	status serviceUserStatus
 	cm     *contextManager // Set only after the handshake completes.
 	// activeCommands map[uint16]*userCommandState // List of commands running
+	// Application-entity title of the move destination.
+	moveAETitle string
 }
 
 // ServiceUserParams defines parameters for a ServiceUser.
@@ -61,6 +63,9 @@ type ServiceUserParams struct {
 	// Application-entity title of the client. If empty, set to
 	// "unknown-calling-ae"
 	CallingAETitle string
+	// Application-entity title of the move destination. If empty, set to
+	// "unknown-move-ae"
+	MoveAETitle string
 
 	// List of SOPUIDs wanted by the client. The value is typically one of
 	// the constants listed in sopclass package.
@@ -86,6 +91,9 @@ func validateServiceUserParams(params *ServiceUserParams) error {
 	}
 	if params.CallingAETitle == "" {
 		params.CallingAETitle = "unknown-calling-ae"
+	}
+	if params.MoveAETitle == "" {
+		params.MoveAETitle = "unknown-move-ae"
 	}
 	if len(params.SOPClasses) == 0 {
 		return fmt.Errorf("Empty ServiceUserParams.SOPClasses")
@@ -113,12 +121,13 @@ func NewServiceUser(params ServiceUserParams) (*ServiceUser, error) {
 	mu := &sync.Mutex{}
 	label := newUID("user")
 	su := &ServiceUser{
-		label:    label,
-		upcallCh: make(chan upcallEvent, 128),
-		disp:     newServiceDispatcher(label),
-		mu:       mu,
-		cond:     sync.NewCond(mu),
-		status:   serviceUserInitial,
+		label:       label,
+		upcallCh:    make(chan upcallEvent, 128),
+		disp:        newServiceDispatcher(label),
+		mu:          mu,
+		cond:        sync.NewCond(mu),
+		status:      serviceUserInitial,
+		moveAETitle: params.MoveAETitle,
 	}
 	go runStateMachineForServiceUser(params, su.upcallCh, su.disp.downcallCh, label)
 	go func() {
@@ -479,6 +488,54 @@ func (su *ServiceUser) CGet(qrLevel QRLevel, filter []*dicom.Element,
 			if resp.Status.Status != 0 {
 				e := fmt.Errorf("Received C-GET error: %+v", resp)
 				dicomlog.Vprintf(0, "dicom.serviceUser: C-GET: %v", e)
+				return e
+			}
+			break
+		}
+	}
+	return nil
+}
+
+func (su *ServiceUser) CMove(qrLevel QRLevel, filter []*dicom.Element) error {
+	err := su.waitUntilReady()
+	if err != nil {
+		return err
+	}
+	context, payload, err := encodeQRPayload(qrOpCMove, qrLevel, filter, su.cm)
+	if err != nil {
+		return err
+	}
+	cs, err := su.disp.newCommand(su.cm, context)
+	if err != nil {
+		return err
+	}
+	defer su.disp.deleteCommand(cs)
+
+	defer su.disp.unregisterCallback(dimse.CommandFieldCStoreRq)
+	cs.sendMessage(
+		&dimse.CMoveRq{
+			AffectedSOPClassUID: context.abstractSyntaxUID,
+			MessageID:           cs.messageID,
+			CommandDataSetType:  dimse.CommandDataSetTypeNonNull,
+			MoveDestination:     su.moveAETitle,
+		},
+		payload)
+	for {
+		event, ok := <-cs.upcallCh
+		if !ok {
+			su.status = serviceUserClosed
+			return fmt.Errorf("Connection closed while waiting for C-MOVE response")
+		}
+		doassert(event.eventType == upcallEventData)
+		doassert(event.command != nil)
+		resp, ok := event.command.(*dimse.CMoveRsp)
+		if !ok {
+			return fmt.Errorf("Found wrong response for C-MOVE: %v", event.command)
+		}
+		if resp.Status.Status != dimse.StatusPending {
+			if resp.Status.Status != 0 {
+				e := fmt.Errorf("Received C-MOVE error: %+v", resp)
+				dicomlog.Vprintf(0, "dicom.serviceUser: C-MOVE: %v", e)
 				return e
 			}
 			break
