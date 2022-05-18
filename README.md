@@ -7,6 +7,9 @@ examples.
 
 Inspired by https://github.com/pydicom/pynetdicom3.
 
+Status as of 2022-18-05:
+- C-MOVE works on the client side
+
 Status as of 2017-10-02:
 
 - C-STORE, C-FIND, C-GET work, both for the client and the server. Look at
@@ -21,8 +24,7 @@ TODO:
 
 - Better SSL support.
 
-- Implement the rest of DIMSE protocols, in particular C-MOVE on the client
-  side, and N-* commands.
+- Implement the rest of DIMSE protocols, in particular N-* commands.
 
 - Better message validation.
 

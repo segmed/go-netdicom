@@ -29,7 +29,6 @@ func newServiceUser(sopClasses []string) *netdicom.ServiceUser {
 	su, err := netdicom.NewServiceUser(netdicom.ServiceUserParams{
 		CalledAETitle:  *remoteAETitleFlag,
 		CallingAETitle: *aeTitleFlag,
-		MoveAETitle:    *moveAETitleFlag,
 		SOPClasses:     sopClasses})
 	if err != nil {
 		log.Panic(err)
@@ -85,8 +84,11 @@ func cMove() {
 	su := newServiceUser(sopclass.QRMoveClasses)
 	defer su.Release()
 	qrLevel, args := generateCFindElements()
-	err := su.CMove(qrLevel, args)
-	log.Printf("C-MOVE finished: %v", err)
+	if err := su.CMove(*moveAETitleFlag, qrLevel, args); err != nil {
+		log.Printf("C-MOVE error: %v", err)
+	} else {
+		log.Print("C-MOVE finished")
+	}
 }
 
 func cGet() {
