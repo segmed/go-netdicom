@@ -487,6 +487,54 @@ func (su *ServiceUser) CGet(qrLevel QRLevel, filter []*dicom.Element,
 	return nil
 }
 
+func (su *ServiceUser) CMove(moveDestination string, qrLevel QRLevel, filter []*dicom.Element) error {
+	err := su.waitUntilReady()
+	if err != nil {
+		return err
+	}
+	context, payload, err := encodeQRPayload(qrOpCMove, qrLevel, filter, su.cm)
+	if err != nil {
+		return err
+	}
+	cs, err := su.disp.newCommand(su.cm, context)
+	if err != nil {
+		return err
+	}
+	defer su.disp.deleteCommand(cs)
+
+	defer su.disp.unregisterCallback(dimse.CommandFieldCStoreRq)
+	cs.sendMessage(
+		&dimse.CMoveRq{
+			AffectedSOPClassUID: context.abstractSyntaxUID,
+			MessageID:           cs.messageID,
+			CommandDataSetType:  dimse.CommandDataSetTypeNonNull,
+			MoveDestination:     moveDestination,
+		},
+		payload)
+	for {
+		event, ok := <-cs.upcallCh
+		if !ok {
+			su.status = serviceUserClosed
+			return fmt.Errorf("Connection closed while waiting for C-MOVE response")
+		}
+		doassert(event.eventType == upcallEventData)
+		doassert(event.command != nil)
+		resp, ok := event.command.(*dimse.CMoveRsp)
+		if !ok {
+			return fmt.Errorf("Found wrong response for C-MOVE: %v", event.command)
+		}
+		if resp.Status.Status != dimse.StatusPending {
+			if resp.Status.Status != 0 {
+				e := fmt.Errorf("Received C-MOVE error: %+v", resp)
+				dicomlog.Vprintf(0, "dicom.serviceUser: C-MOVE: %v", e)
+				return e
+			}
+			break
+		}
+	}
+	return nil
+}
+
 // Release shuts down the connection. It must be called exactly once.  After
 // Release(), no other operation can be performed on the ServiceUser object.
 func (su *ServiceUser) Release() {

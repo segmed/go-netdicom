@@ -17,10 +17,12 @@ var (
 	storeFlag         = flag.String("store", "", "If set, issue C-STORE to copy this file to the remote server")
 	aeTitleFlag       = flag.String("ae-title", "testclient", "AE title of the client")
 	remoteAETitleFlag = flag.String("remote-ae-title", "testserver", "AE title of the server")
+	moveAETitleFlag   = flag.String("move-ae-title", "testdestination", "AE title of the move destination")
 	findFlag          = flag.Bool("find", false, "Issue a C-FIND.")
 	getFlag           = flag.Bool("get", false, "Issue a C-GET.")
-	seriesFlag        = flag.String("series", "", "Study series UID to retrieve in C-{FIND,GET}.")
-	studyFlag         = flag.String("study", "", "Study instance UID to retrieve in C-{FIND,GET}.")
+	moveFlag          = flag.Bool("move", false, "Issue a C-MOVE.")
+	seriesFlag        = flag.String("series", "", "Study series UID to retrieve in C-{FIND,GET,MOVE}.")
+	studyFlag         = flag.String("study", "", "Study instance UID to retrieve in C-{FIND,GET,MOVE}.")
 )
 
 func newServiceUser(sopClasses []string) *netdicom.ServiceUser {
@@ -78,6 +80,17 @@ func generateCFindElements() (netdicom.QRLevel, []*dicom.Element) {
 	return netdicom.QRLevelPatient, args
 }
 
+func cMove() {
+	su := newServiceUser(sopclass.QRMoveClasses)
+	defer su.Release()
+	qrLevel, args := generateCFindElements()
+	if err := su.CMove(*moveAETitleFlag, qrLevel, args); err != nil {
+		log.Printf("C-MOVE error: %v", err)
+	} else {
+		log.Print("C-MOVE finished")
+	}
+}
+
 func cGet() {
 	su := newServiceUser(sopclass.QRGetClasses)
 	defer su.Release()
@@ -117,7 +130,9 @@ func main() {
 		cFind()
 	} else if *getFlag {
 		cGet()
+	} else if *moveFlag {
+		cMove()
 	} else {
-		log.Panic("Either -store, -get, or -find must be set")
+		log.Panic("Either -store, -get, -move, or -find must be set")
 	}
 }
