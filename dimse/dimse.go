@@ -109,17 +109,30 @@ func (d *messageDecoder) getString(tag dicomtag.Tag, optional isOptionalElement)
 	return v
 }
 
+// multiValueTags is a list of tags, that can hold multiple values (1-n)
+// https://dicom.nema.org/dicom/2013/output/chtml/part07/chapter_E.html
+var multiValueTags = map[dicomtag.Tag]bool{
+	dicomtag.OffendingElement:        true,
+	dicomtag.AttributeIdentifierList: true,
+}
+
 // Find an element with "tag", and extract a uint16 from it. Errors are reported in d.err.
 func (d *messageDecoder) getUInt16(tag dicomtag.Tag, optional isOptionalElement) uint16 {
 	e := d.findElement(tag, optional)
 	if e == nil {
 		return 0
 	}
-	v, err := e.GetUInt16()
+	if len(e.Value) > 1 && !multiValueTags[e.Tag] {
+		dicomlog.Vprintf(3, "Non-conformant VM %d for '%s', taking the first value", len(e.Value), e.Tag.String())
+	} else if len(e.Value) != 1 {
+		d.setError(fmt.Errorf("Found %d value(s) in getUInt16 (expect 1): %v", len(e.Value), e))
+		return 0
+	}
+	v, err := e.GetUint16s()
 	if err != nil {
 		d.setError(err)
 	}
-	return v
+	return v[0]
 }
 
 // Encode the given elements. The elements are sorted in ascending tag order.

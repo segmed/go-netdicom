@@ -23,6 +23,7 @@ var (
 	moveFlag          = flag.Bool("move", false, "Issue a C-MOVE.")
 	seriesFlag        = flag.String("series", "", "Study series UID to retrieve in C-{FIND,GET,MOVE}.")
 	studyFlag         = flag.String("study", "", "Study instance UID to retrieve in C-{FIND,GET,MOVE}.")
+	anFlag            = flag.String("accession-number", "", "AccessionNumber to retrieve in C-{FIND,GET,MOVE}.")
 )
 
 func newServiceUser(sopClasses []string) *netdicom.ServiceUser {
@@ -58,6 +59,9 @@ func generateCFindElements() (netdicom.QRLevel, []*dicom.Element) {
 	}
 	if *studyFlag != "" {
 		return netdicom.QRLevelStudy, []*dicom.Element{dicom.MustNewElement(dicomtag.StudyInstanceUID, *studyFlag)}
+	}
+	if *anFlag != "" {
+		return netdicom.QRLevelStudy, []*dicom.Element{dicom.MustNewElement(dicomtag.AccessionNumber, *anFlag)}
 	}
 	args := []*dicom.Element{
 		dicom.MustNewElement(dicomtag.SpecificCharacterSet, "ISO_IR 100"),
