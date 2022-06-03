@@ -122,6 +122,20 @@ func (d *messageDecoder) getUInt16(tag dicomtag.Tag, optional isOptionalElement)
 	if e == nil {
 		return 0
 	}
+	v, err := e.GetUInt16()
+	if err != nil {
+		d.setError(err)
+	}
+	return v
+}
+
+// Find an element with "tag", and extract a uint16 from it. Errors are reported in d.err.
+// Allow parsing of dimse command sets that contain elements with non-conformant VMs
+func (d *messageDecoder) getNonConformantUInt16(tag dicomtag.Tag, optional isOptionalElement) uint16 {
+	e := d.findElement(tag, optional)
+	if e == nil {
+		return 0
+	}
 	if len(e.Value) > 1 && !multiValueTags[e.Tag] {
 		dicomlog.Vprintf(3, "Non-conformant VM %d for '%s', taking the first value", len(e.Value), e.Tag.String())
 	} else if len(e.Value) != 1 {
