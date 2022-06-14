@@ -59,6 +59,22 @@ func newContextManager(label string) *contextManager {
 	return c
 }
 
+// Pick the first matching transfer syntax UID appeares in allTransferSyntaxes
+// - If one of the client proposed transfer syntaxes matches the server's preferred transfer syntax, then that transfer syntax is accepted.
+// - If the client does not propose a transfer syntax that matches the server's preferred transfer syntax, the first transfer syntax in the client's list of proposed syntaxes is accepted.
+// - If none of the proposed transfer syntaxes are supported, the server MUST send a bind_ack with all transfer syntaxes rejected.
+func pickFirstPreferedTransferSyntax(proposedTransferSyntaxUIDs []string) string {
+	for _, syntaxUID := range allTransferSyntaxes {
+		for _, proposed := range proposedTransferSyntaxUIDs {
+			if syntaxUID == proposed {
+				return syntaxUID
+			}
+		}
+	}
+	// Just pick the first syntax UID proposed by the client.
+	return proposedTransferSyntaxUIDs[0]
+}
+
 // Called by the user (client) to produce a list to be embedded in an
 // A_REQUEST_RQ.Items. The PDU is sent when running as a service user (client).
 // maxPDUSize is the maximum PDU size, in bytes, that the clients is willing to
@@ -114,7 +130,7 @@ func (m *contextManager) onAssociateRequest(requestItems []pdu.SubItem) ([]pdu.S
 			}
 		case *pdu.PresentationContextItem:
 			var sopUID string
-			var pickedTransferSyntaxUID string
+			var proposedTransferSyntaxUIDs []string
 			for _, subItem := range ri.Items {
 				switch c := subItem.(type) {
 				case *pdu.AbstractSyntaxSubItem:
@@ -124,15 +140,13 @@ func (m *contextManager) onAssociateRequest(requestItems []pdu.SubItem) ([]pdu.S
 					}
 					sopUID = c.Name
 				case *pdu.TransferSyntaxSubItem:
-					// Just pick the first syntax UID proposed by the client.
-					if pickedTransferSyntaxUID == "" {
-						pickedTransferSyntaxUID = c.Name
-					}
+					proposedTransferSyntaxUIDs = append(proposedTransferSyntaxUIDs, c.Name)
 				default:
 					return nil, fmt.Errorf("dicom.onAssociateRequest: Unknown subitem in PresentationContext: %s",
 						subItem.String())
 				}
 			}
+			var pickedTransferSyntaxUID = pickFirstPreferedTransferSyntax(proposedTransferSyntaxUIDs)
 			if sopUID == "" || pickedTransferSyntaxUID == "" {
 				return nil, fmt.Errorf("dicom.onAssociateRequest: SOP or transfersyntax not found in PresentationContext: %v",
 					ri.String())
