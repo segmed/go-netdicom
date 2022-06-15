@@ -62,7 +62,9 @@ func newContextManager(label string) *contextManager {
 // Pick the first matching transfer syntax UID appeares in allTransferSyntaxes
 // - If one of the client proposed transfer syntaxes matches the server's preferred transfer syntax, then that transfer syntax is accepted.
 // - If the client does not propose a transfer syntax that matches the server's preferred transfer syntax, the first transfer syntax in the client's list of proposed syntaxes is accepted.
-// - If none of the proposed transfer syntaxes are supported, the server MUST send a bind_ack with all transfer syntaxes rejected.
+// - If none of the proposed transfer syntaxes are supported, just pick the first preferred transfer syntax:
+//   Implicit VR Little Endian Transfer Syntax (UID = "1.2.840.10008.1.2 "),
+//   which shall be supported by every conformant DICOM Implementation.
 func pickFirstPreferedTransferSyntax(proposedTransferSyntaxUIDs []string) string {
 	for _, syntaxUID := range allTransferSyntaxes {
 		for _, proposed := range proposedTransferSyntaxUIDs {
@@ -71,8 +73,7 @@ func pickFirstPreferedTransferSyntax(proposedTransferSyntaxUIDs []string) string
 			}
 		}
 	}
-	// Just pick the first syntax UID proposed by the client.
-	return proposedTransferSyntaxUIDs[0]
+	return allTransferSyntaxes[0]
 }
 
 // Called by the user (client) to produce a list to be embedded in an
