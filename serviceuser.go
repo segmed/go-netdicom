@@ -380,11 +380,12 @@ func (su *ServiceUser) CFind(qrLevel QRLevel, filter []*dicom.Element) chan CFin
 				CommandDataSetType:  dimse.CommandDataSetTypeNonNull,
 			},
 			payload)
+	receiveLoop:
 		for {
 			event, ok := <-cs.upcallCh
 			if !ok {
 				su.status = serviceUserClosed
-				ch <- CFindResult{Err: fmt.Errorf("Connection closed while waiting for C-FIND response")}
+				ch <- CFindResult{Err: fmt.Errorf("connection closed while waiting for C-FIND response")}
 				break
 			}
 			doassert(event.eventType == upcallEventData)
@@ -401,12 +402,18 @@ func (su *ServiceUser) CFind(qrLevel QRLevel, filter []*dicom.Element) chan CFin
 			} else {
 				ch <- CFindResult{Elements: elems}
 			}
-			if resp.Status.Status != dimse.StatusPending {
-				if resp.Status.Status != 0 {
-					// TODO: report error if status!= 0
-					panic(resp)
-				}
-				break
+			switch resp.Status.Status {
+			case dimse.StatusPending:
+				continue receiveLoop
+			case dimse.StatusSuccess:
+				dicomlog.Vprintf(1, "dicom.serviceUser: C-MOVE received response success: %+v", elems)
+				ch <- CFindResult{Elements: elems}
+				break receiveLoop
+			default:
+				e := fmt.Errorf("received C-MOVE error: %+v", resp)
+				dicomlog.Vprintf(0, "dicom.serviceUser: C-MOVE received response not success: %v", e)
+				ch <- CFindResult{Err: e}
+				break receiveLoop
 			}
 		}
 	}()
@@ -463,6 +470,7 @@ func (su *ServiceUser) CGet(qrLevel QRLevel, filter []*dicom.Element,
 			CommandDataSetType:  dimse.CommandDataSetTypeNonNull,
 		},
 		payload)
+receiveLoop:
 	for {
 		event, ok := <-cs.upcallCh
 		if !ok {
@@ -473,15 +481,17 @@ func (su *ServiceUser) CGet(qrLevel QRLevel, filter []*dicom.Element,
 		doassert(event.command != nil)
 		resp, ok := event.command.(*dimse.CGetRsp)
 		if !ok {
-			return fmt.Errorf("Found wrong response for C-GET: %v", event.command)
+			return fmt.Errorf("found wrong response for C-GET: %v", event.command)
 		}
-		if resp.Status.Status != dimse.StatusPending {
-			if resp.Status.Status != 0 {
-				e := fmt.Errorf("Received C-GET error: %+v", resp)
-				dicomlog.Vprintf(0, "dicom.serviceUser: C-GET: %v", e)
-				return e
-			}
-			break
+		switch resp.Status.Status {
+		case dimse.StatusPending:
+			continue receiveLoop
+		case dimse.StatusSuccess:
+			break receiveLoop
+		default:
+			e := fmt.Errorf("received C-GET error: %+v", resp)
+			dicomlog.Vprintf(0, "dicom.serviceUser: C-GET: %v", e)
+			return e
 		}
 	}
 	return nil
@@ -511,25 +521,29 @@ func (su *ServiceUser) CMove(moveDestination string, qrLevel QRLevel, filter []*
 			MoveDestination:     moveDestination,
 		},
 		payload)
+receiveLoop:
 	for {
 		event, ok := <-cs.upcallCh
 		if !ok {
 			su.status = serviceUserClosed
-			return fmt.Errorf("Connection closed while waiting for C-MOVE response")
+			return fmt.Errorf("connection closed while waiting for C-MOVE response")
 		}
 		doassert(event.eventType == upcallEventData)
 		doassert(event.command != nil)
 		resp, ok := event.command.(*dimse.CMoveRsp)
 		if !ok {
-			return fmt.Errorf("Found wrong response for C-MOVE: %v", event.command)
+			return fmt.Errorf("found wrong response for C-MOVE: %v", event.command)
 		}
-		if resp.Status.Status != dimse.StatusPending {
-			if resp.Status.Status != 0 {
-				e := fmt.Errorf("Received C-MOVE error: %+v", resp)
-				dicomlog.Vprintf(0, "dicom.serviceUser: C-MOVE: %v", e)
-				return e
-			}
-			break
+		switch resp.Status.Status {
+		case dimse.StatusPending:
+			continue receiveLoop
+		case dimse.StatusSuccess:
+			dicomlog.Vprintf(1, "dicom.serviceUser: C-MOVE received response success: %+v", resp)
+			break receiveLoop
+		default:
+			e := fmt.Errorf("received C-MOVE error: %+v", resp)
+			dicomlog.Vprintf(0, "dicom.serviceUser: C-MOVE received response not success: %v", e)
+			return e
 		}
 	}
 	return nil
