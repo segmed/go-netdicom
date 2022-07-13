@@ -399,19 +399,18 @@ func (su *ServiceUser) CFind(qrLevel QRLevel, filter []*dicom.Element) chan CFin
 			if err != nil {
 				dicomlog.Vprintf(0, "dicom.serviceUser: Failed to decode C-FIND response: %v %v", resp.String(), err)
 				ch <- CFindResult{Err: err}
-			} else {
-				ch <- CFindResult{Elements: elems}
 			}
 			switch resp.Status.Status {
 			case dimse.StatusPending:
+				dicomlog.Vprintf(1, "dicom.serviceUser: C-FIND received pending response: %+v", elems)
 				continue receiveLoop
 			case dimse.StatusSuccess:
-				dicomlog.Vprintf(1, "dicom.serviceUser: C-MOVE received response success: %+v", elems)
+				dicomlog.Vprintf(1, "dicom.serviceUser: C-FIND received response success: %+v", elems)
 				ch <- CFindResult{Elements: elems}
 				break receiveLoop
 			default:
 				e := fmt.Errorf("received C-MOVE error: %+v", resp)
-				dicomlog.Vprintf(0, "dicom.serviceUser: C-MOVE received response not success: %v", e)
+				dicomlog.Vprintf(0, "dicom.serviceUser: C-FIND received response not success: %v", e)
 				ch <- CFindResult{Err: e}
 				break receiveLoop
 			}
@@ -485,8 +484,10 @@ receiveLoop:
 		}
 		switch resp.Status.Status {
 		case dimse.StatusPending:
+			dicomlog.Vprintf(1, "dicom.serviceUser: C-GET received pending response")
 			continue receiveLoop
 		case dimse.StatusSuccess:
+			dicomlog.Vprintf(1, "dicom.serviceUser: C-GET received success response")
 			break receiveLoop
 		default:
 			e := fmt.Errorf("received C-GET error: %+v", resp)
@@ -536,6 +537,7 @@ receiveLoop:
 		}
 		switch resp.Status.Status {
 		case dimse.StatusPending:
+			dicomlog.Vprintf(1, "dicom.serviceUser: C-MOVE received pending response")
 			continue receiveLoop
 		case dimse.StatusSuccess:
 			dicomlog.Vprintf(1, "dicom.serviceUser: C-MOVE received response success: %+v", resp)
