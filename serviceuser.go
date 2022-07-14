@@ -403,6 +403,7 @@ func (su *ServiceUser) CFind(qrLevel QRLevel, filter []*dicom.Element) chan CFin
 			switch resp.Status.Status {
 			case dimse.StatusPending:
 				dicomlog.Vprintf(1, "dicom.serviceUser: C-FIND received pending response: %+v", elems)
+				ch <- CFindResult{Elements: elems}
 				continue receiveLoop
 			case dimse.StatusSuccess:
 				dicomlog.Vprintf(1, "dicom.serviceUser: C-FIND received response success: %+v", elems)
