@@ -6,7 +6,9 @@ import (
 	"log"
 
 	"github.com/grailbio/go-dicom"
+	"github.com/grailbio/go-dicom/dicomlog"
 	"github.com/grailbio/go-dicom/dicomtag"
+
 	"github.com/grailbio/go-netdicom"
 	"github.com/grailbio/go-netdicom/dimse"
 	"github.com/grailbio/go-netdicom/sopclass"
@@ -14,6 +16,7 @@ import (
 
 var (
 	serverFlag        = flag.String("server", "localhost:10000", "host:port of the remote application entity")
+	logLevelFlag      = flag.Int("log", 0, `the log level of client. Available: 0,1`)
 	storeFlag         = flag.String("store", "", "If set, issue C-STORE to copy this file to the remote server")
 	aeTitleFlag       = flag.String("ae-title", "testclient", "AE title of the client")
 	remoteAETitleFlag = flag.String("remote-ae-title", "testserver", "AE title of the server")
@@ -128,6 +131,7 @@ func cFind() {
 
 func main() {
 	flag.Parse()
+	dicomlog.SetLevel(*logLevelFlag)
 	if *storeFlag != "" {
 		cStore(*storeFlag)
 	} else if *findFlag {
