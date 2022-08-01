@@ -7,6 +7,7 @@ package main
 // It starts a DICOM server and serves files under <directory>.
 
 import (
+	"bytes"
 	"crypto/tls"
 	"crypto/x509"
 	"flag"
@@ -56,6 +57,34 @@ type server struct {
 
 	// For generating new unique path in C-STORE. Guarded by mu.
 	pathSeq int32
+}
+
+func (ss *server) onCStoreStream(
+	transferSyntaxUID string,
+	sopClassUID string,
+	sopInstanceUID string,
+	dataCh chan []byte) dimse.Status {
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+
+	buf := bytes.Buffer{}
+
+	e := dicomio.NewEncoderWithTransferSyntax(&buf, transferSyntaxUID)
+	dicom.WriteFileHeader(e,
+		[]*dicom.Element{
+			dicom.MustNewElement(dicomtag.TransferSyntaxUID, transferSyntaxUID),
+			dicom.MustNewElement(dicomtag.MediaStorageSOPClassUID, sopClassUID),
+			dicom.MustNewElement(dicomtag.MediaStorageSOPInstanceUID, sopInstanceUID),
+		})
+	for data := range dataCh {
+		e.WriteBytes(data)
+		if err := e.Error(); err != nil {
+			log.Printf("write: %v", err)
+			return dimse.Status{Status: dimse.StatusNotAuthorized, ErrorComment: err.Error()}
+		}
+		log.Printf("C-STORE: Stored %v MB in buffer", len(buf.Bytes())/1024/1024)
+	}
+	return dimse.Success
 }
 
 func (ss *server) onCStore(
@@ -364,6 +393,12 @@ func runSCP(port string, dir string, remoteAEs map[string]string, tlsConfig *tls
 			sopInstanceUID string,
 			data []byte) dimse.Status {
 			return ss.onCStore(transferSyntaxUID, sopClassUID, sopInstanceUID, data)
+		},
+		CStoreStream: func(connState netdicom.ConnectionState, transferSyntaxUID string,
+			sopClassUID string,
+			sopInstanceUID string,
+			data chan []byte) dimse.Status {
+			return ss.onCStoreStream(transferSyntaxUID, sopClassUID, sopInstanceUID, data)
 		},
 		TLSConfig: tlsConfig,
 	}

@@ -21,10 +21,18 @@ type serviceDispatcher struct {
 	// Set of active DIMSE commands running. Keys are message IDs.
 	activeCommands map[dimse.MessageID]*serviceCommandState // guarded by mu
 
+	// Set of active stream DIMSE commands running. Keys are message IDs.
+	activeStreamCommands map[dimse.MessageID]*serviceCommandState // guarded by mu
+
 	// A callback to be called when a dimse request message arrives. Keys
 	// are DIMSE CommandField. The callback typically creates a new command
 	// by calling findOrCreateCommand.
 	callbacks map[int]serviceCallback // guarded by mu
+
+	// A callback to be called when a dimse request message arrives. Keys
+	// are DIMSE CommandField. The callback typically creates a new command
+	// by calling findOrCreateCommand.
+	streamCallbacks map[int]serviceStreamCallback // guarded by mu
 
 	// The last message ID used in newCommand(). Used to avoid creating duplicate
 	// IDs.
@@ -32,6 +40,8 @@ type serviceDispatcher struct {
 }
 
 type serviceCallback func(msg dimse.Message, data []byte, cs *serviceCommandState)
+
+type serviceStreamCallback func(msg dimse.Message, dataChan chan []byte, cs *serviceCommandState)
 
 // Per-DIMSE-command state.
 type serviceCommandState struct {
@@ -67,10 +77,11 @@ func (cs *serviceCommandState) sendMessage(cmd dimse.Message, data []byte) {
 func (disp *serviceDispatcher) findOrCreateCommand(
 	msgID dimse.MessageID,
 	cm *contextManager,
+	activeCommands map[dimse.MessageID]*serviceCommandState,
 	context contextManagerEntry) (*serviceCommandState, bool) {
 	disp.mu.Lock()
 	defer disp.mu.Unlock()
-	if cs, ok := disp.activeCommands[msgID]; ok {
+	if cs, ok := activeCommands[msgID]; ok {
 		return cs, true
 	}
 	cs := &serviceCommandState{
@@ -80,7 +91,7 @@ func (disp *serviceDispatcher) findOrCreateCommand(
 		context:   context,
 		upcallCh:  make(chan upcallEvent, 128),
 	}
-	disp.activeCommands[msgID] = cs
+	activeCommands[msgID] = cs
 	dicomlog.Vprintf(1, "dicom.serviceDispatcher(%s): Start command %+v", disp.label, cs)
 	return cs, false
 }
@@ -116,9 +127,19 @@ func (disp *serviceDispatcher) deleteCommand(cs *serviceCommandState) {
 	disp.mu.Lock()
 	dicomlog.Vprintf(1, "dicom.serviceDispatcher(%s): Finish provider command %v", disp.label, cs.messageID)
 	if _, ok := disp.activeCommands[cs.messageID]; !ok {
-		panic(fmt.Sprintf("cs %+v", cs))
+		if _, ok = disp.activeStreamCommands[cs.messageID]; !ok {
+			panic(fmt.Sprintf("cs %+v", cs))
+		}
+		delete(disp.activeStreamCommands, cs.messageID)
+	} else {
+		delete(disp.activeCommands, cs.messageID)
 	}
-	delete(disp.activeCommands, cs.messageID)
+	disp.mu.Unlock()
+}
+
+func (disp *serviceDispatcher) registerStreamCallback(commandField int, cb serviceStreamCallback) {
+	disp.mu.Lock()
+	disp.streamCallbacks[commandField] = cb
 	disp.mu.Unlock()
 }
 
@@ -134,7 +155,10 @@ func (disp *serviceDispatcher) unregisterCallback(commandField int) {
 	disp.mu.Unlock()
 }
 
-func (disp *serviceDispatcher) handleEvent(event upcallEvent) {
+func (disp *serviceDispatcher) _handleEvent(
+	event upcallEvent,
+	activeCommands map[dimse.MessageID]*serviceCommandState,
+	cb func(dc *serviceCommandState)) {
 	if event.eventType == upcallEventHandshakeCompleted {
 		return
 	}
@@ -147,20 +171,38 @@ func (disp *serviceDispatcher) handleEvent(event upcallEvent) {
 		return
 	}
 	messageID := event.command.GetMessageID()
-	dc, found := disp.findOrCreateCommand(messageID, event.cm, context)
+	dc, found := disp.findOrCreateCommand(messageID, event.cm, activeCommands, context)
 	if found {
 		dicomlog.Vprintf(1, "dicom.serviceDispatcher(%s): Forwarding command to existing command: %+v %+v", disp.label, event.command, dc)
 		dc.upcallCh <- event
 		dicomlog.Vprintf(1, "dicom.serviceDispatcher(%s): Done forwarding command to existing command: %+v %+v", disp.label, event.command, dc)
 		return
 	}
-	disp.mu.Lock()
-	cb := disp.callbacks[event.command.CommandField()]
-	disp.mu.Unlock()
-	go func() {
-		cb(event.command, event.data, dc)
-		disp.deleteCommand(dc)
-	}()
+	cb(dc)
+}
+
+func (disp *serviceDispatcher) handleEvent(event upcallEvent) {
+	disp._handleEvent(event, disp.activeCommands, func(dc *serviceCommandState) {
+		disp.mu.Lock()
+		cb := disp.callbacks[event.command.CommandField()]
+		disp.mu.Unlock()
+		go func() {
+			cb(event.command, event.data, dc)
+			disp.deleteCommand(dc)
+		}()
+	})
+}
+
+func (disp *serviceDispatcher) handleStreamEvent(event upcallEvent) {
+	disp._handleEvent(event, disp.activeStreamCommands, func(dc *serviceCommandState) {
+		disp.mu.Lock()
+		cb := disp.streamCallbacks[event.command.CommandField()]
+		disp.mu.Unlock()
+		go func() {
+			cb(event.command, event.stream, dc)
+			disp.deleteCommand(dc)
+		}()
+	})
 }
 
 // Must be called exactly once to shut down the dispatcher.
@@ -170,6 +212,9 @@ func (disp *serviceDispatcher) close() {
 		for _, cs := range disp.activeCommands {
 			close(cs.upcallCh)
 		}
+		for _, cs := range disp.activeStreamCommands {
+			close(cs.upcallCh)
+		}
 		disp.mu.Unlock()
 	})
 	// TODO(saito): prevent new command from launching.
@@ -177,10 +222,12 @@ func (disp *serviceDispatcher) close() {
 
 func newServiceDispatcher(label string) *serviceDispatcher {
 	return &serviceDispatcher{
-		label:          label,
-		downcallCh:     make(chan stateEvent, 128),
-		activeCommands: make(map[dimse.MessageID]*serviceCommandState),
-		callbacks:      make(map[int]serviceCallback),
-		lastMessageID:  123,
+		label:                label,
+		downcallCh:           make(chan stateEvent, 128),
+		activeCommands:       make(map[dimse.MessageID]*serviceCommandState),
+		activeStreamCommands: make(map[dimse.MessageID]*serviceCommandState),
+		callbacks:            make(map[int]serviceCallback),
+		streamCallbacks:      make(map[int]serviceStreamCallback),
+		lastMessageID:        123,
 	}
 }
