@@ -956,15 +956,16 @@ func runStateMachineForServiceUser(
 	doassert(len(params.SOPClasses) > 0)
 	doassert(len(params.TransferSyntaxes) > 0)
 	sm := &stateMachine{
-		label:          label,
-		isUser:         true,
-		contextManager: newContextManager(label),
-		userParams:     params,
-		netCh:          make(chan stateEvent, 128),
-		errorCh:        make(chan stateEvent, 128),
-		downcallCh:     downcallCh,
-		upcallCh:       upcallCh,
-		faults:         getUserFaultInjector(),
+		label:            label,
+		isUser:           true,
+		contextManager:   newContextManager(label),
+		userParams:       params,
+		netCh:            make(chan stateEvent, 128),
+		errorCh:          make(chan stateEvent, 128),
+		downcallCh:       downcallCh,
+		upcallCh:         upcallCh,
+		faults:           getUserFaultInjector(),
+		commandAssembler: dimse.NewCommandAssembler(),
 	}
 	event := stateEvent{event: evt01}
 	action := findAction(sta01, &event, sm.label)
