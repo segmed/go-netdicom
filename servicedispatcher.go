@@ -123,17 +123,24 @@ func (disp *serviceDispatcher) newCommand(
 	return nil, fmt.Errorf("Failed to allocate a message ID (too many outstading?)")
 }
 
+func (disp *serviceDispatcher) deleteStreamCommand(
+	cs *serviceCommandState) {
+	disp.mu.Lock()
+	dicomlog.Vprintf(1, "dicom.serviceDispatcher(%s): Finish provider command %v", disp.label, cs.messageID)
+	if _, ok := disp.activeStreamCommands[cs.messageID]; !ok {
+		panic(fmt.Sprintf("cs %+v", cs))
+	}
+	delete(disp.activeStreamCommands, cs.messageID)
+	disp.mu.Unlock()
+}
+
 func (disp *serviceDispatcher) deleteCommand(cs *serviceCommandState) {
 	disp.mu.Lock()
 	dicomlog.Vprintf(1, "dicom.serviceDispatcher(%s): Finish provider command %v", disp.label, cs.messageID)
 	if _, ok := disp.activeCommands[cs.messageID]; !ok {
-		if _, ok = disp.activeStreamCommands[cs.messageID]; !ok {
-			panic(fmt.Sprintf("cs %+v", cs))
-		}
-		delete(disp.activeStreamCommands, cs.messageID)
-	} else {
-		delete(disp.activeCommands, cs.messageID)
+		panic(fmt.Sprintf("cs %+v", cs))
 	}
+	delete(disp.activeCommands, cs.messageID)
 	disp.mu.Unlock()
 }
 
@@ -187,7 +194,9 @@ func (disp *serviceDispatcher) handleEvent(event upcallEvent) {
 		cb := disp.callbacks[event.command.CommandField()]
 		disp.mu.Unlock()
 		go func() {
-			cb(event.command, event.data, dc)
+			if cb != nil {
+				cb(event.command, event.data, dc)
+			}
 			disp.deleteCommand(dc)
 		}()
 	})
@@ -199,8 +208,10 @@ func (disp *serviceDispatcher) handleStreamEvent(event upcallEvent) {
 		cb := disp.streamCallbacks[event.command.CommandField()]
 		disp.mu.Unlock()
 		go func() {
-			cb(event.command, event.stream, dc)
-			disp.deleteCommand(dc)
+			if cb != nil {
+				cb(event.command, event.stream, dc)
+			}
+			disp.deleteStreamCommand(dc)
 		}()
 	})
 }

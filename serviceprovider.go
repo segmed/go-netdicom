@@ -532,14 +532,17 @@ func RunProviderForConn(conn net.Conn, params ServiceProviderParams) {
 	upcallStreamCh := make(chan upcallEvent, 128)
 	label := newUID("sc")
 	disp := newServiceDispatcher(label)
-	disp.registerStreamCallback(dimse.CommandFieldCStoreRq,
-		func(msg dimse.Message, data chan []byte, cs *serviceCommandState) {
-			handleCStoreStream(params.CStoreStream, getConnState(conn), msg.(*dimse.CStoreRq), data, cs)
-		})
-	disp.registerCallback(dimse.CommandFieldCStoreRq,
-		func(msg dimse.Message, data []byte, cs *serviceCommandState) {
-			handleCStore(params.CStore, getConnState(conn), msg.(*dimse.CStoreRq), data, cs)
-		})
+	if params.CStoreStream != nil {
+		disp.registerStreamCallback(dimse.CommandFieldCStoreRq,
+			func(msg dimse.Message, data chan []byte, cs *serviceCommandState) {
+				handleCStoreStream(params.CStoreStream, getConnState(conn), msg.(*dimse.CStoreRq), data, cs)
+			})
+	} else {
+		disp.registerCallback(dimse.CommandFieldCStoreRq,
+			func(msg dimse.Message, data []byte, cs *serviceCommandState) {
+				handleCStore(params.CStore, getConnState(conn), msg.(*dimse.CStoreRq), data, cs)
+			})
+	}
 	disp.registerCallback(dimse.CommandFieldCFindRq,
 		func(msg dimse.Message, data []byte, cs *serviceCommandState) {
 			handleCFind(params, getConnState(conn), msg.(*dimse.CFindRq), data, cs)
@@ -558,6 +561,8 @@ func RunProviderForConn(conn net.Conn, params ServiceProviderParams) {
 		})
 	go func() {
 		runStateMachineForServiceProvider(conn, upcallCh, upcallStreamCh, disp.downcallCh, label)
+	}()
+	go func() {
 		for event := range upcallStreamCh {
 			disp.handleStreamEvent(event)
 		}
