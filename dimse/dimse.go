@@ -280,29 +280,29 @@ func EncodeMessage(e *dicomio.Encoder, v Message) {
 // CommandAssembler is a helper that assembles a DIMSE command message and data
 // payload from a sequence of P_DATA_TF PDUs.
 type CommandAssembler struct {
-	contextID      byte
-	commandBytes   []byte
-	command        Message
-	dataBytes      []byte
-	stream         chan []byte
-	readAllCommand bool
+	contextID          byte
+	commandBytes       []byte
+	command            Message
+	stream             chan []byte
+	readAllCommand     bool
+	isFirstCommandData bool
 
 	readAllData bool
 }
 
 func NewCommandAssembler() CommandAssembler {
 	return CommandAssembler{
-		stream: make(chan []byte, 128),
+		stream:             make(chan []byte, 128),
+		isFirstCommandData: true,
 	}
 }
 
 // AddDataPDUResult is for adding PDU results
 type AddDataPDUResult struct {
 	First     bool // First fragment if there's no data in buffer
-	Last      bool // Last fragment if the PDU marked as the last one
+	Last      bool // Last fragment if the given PDU marked as the last one
 	ContextID byte
 	Command   Message
-	DataBytes []byte
 	Stream    chan []byte
 }
 
@@ -312,7 +312,7 @@ type AddDataPDUResult struct {
 // returns <"", "", nil, nil>.  On error, it returns a non-nil error.
 func (a *CommandAssembler) AddDataPDU(pdu *pdu.PDataTf) (AddDataPDUResult, error) {
 	var result AddDataPDUResult
-	result.First = len(a.dataBytes) == 0
+	result.First = a.isFirstCommandData
 	result.Stream = a.stream
 	for _, item := range pdu.Items {
 		if a.contextID == 0 {
@@ -329,7 +329,7 @@ func (a *CommandAssembler) AddDataPDU(pdu *pdu.PDataTf) (AddDataPDUResult, error
 				a.readAllCommand = true
 			}
 		} else {
-			a.dataBytes = append(a.dataBytes, item.Value...)
+			a.isFirstCommandData = false
 			a.stream <- item.Value
 			if item.Last {
 				if a.readAllData {
@@ -341,7 +341,6 @@ func (a *CommandAssembler) AddDataPDU(pdu *pdu.PDataTf) (AddDataPDUResult, error
 	}
 	result.ContextID = a.contextID
 	result.Command = a.command
-	result.DataBytes = a.dataBytes
 	if !a.readAllCommand {
 		return result, nil
 	}

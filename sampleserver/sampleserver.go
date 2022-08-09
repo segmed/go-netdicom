@@ -14,6 +14,8 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"path"
 	"path/filepath"
@@ -403,5 +405,8 @@ func runSCP(port string, dir string, remoteAEs map[string]string, tlsConfig *tls
 	if err != nil {
 		panic(err)
 	}
+	go func() {
+		fmt.Println(http.ListenAndServe("localhost:6060", nil))
+	}()
 	sp.Run()
 }

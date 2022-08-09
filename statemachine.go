@@ -186,7 +186,7 @@ var actionAe3 = &stateAction{"AE-3", "Issue A-ASSOCIATE confirmation (accept) pr
 		doassert(v.Type == pdu.TypeAAssociateAc)
 		err := sm.contextManager.onAssociateResponse(v.Items)
 		if err == nil {
-			sm.upcallCh <- upcallEvent{
+			sm.upcallStreamCh <- upcallEvent{
 				eventType: upcallEventHandshakeCompleted,
 				cm:        sm.contextManager,
 			}
@@ -266,7 +266,7 @@ otherwise issue A-ASSOCIATE-RJ-PDU and start ARTIM timer`,
 var actionAe7 = &stateAction{"AE-7", "Send A-ASSOCIATE-AC PDU",
 	func(sm *stateMachine, event stateEvent) stateType {
 		sendPDU(sm, event.pdu.(*pdu.AAssociate))
-		sm.upcallCh <- upcallEvent{
+		sm.upcallStreamCh <- upcallEvent{
 			eventType: upcallEventHandshakeCompleted,
 			cm:        sm.contextManager,
 		}
@@ -346,23 +346,14 @@ var actionDt2 = &stateAction{"DT-2", "Send P-DATA indication primitive",
 	func(sm *stateMachine, event stateEvent) stateType {
 		result, err := sm.commandAssembler.AddDataPDU(event.pdu.(*pdu.PDataTf))
 		if err == nil {
-			if result.First {
+			if result.First && sm.upcallStreamCh != nil {
+				dicomlog.Vprintf(1, "dicom.stateMachine(%s): DIMSE request: %v", sm.label, result.Command)
 				sm.upcallStreamCh <- upcallEvent{
 					eventType: upcallEventData,
 					cm:        sm.contextManager,
 					contextID: result.ContextID,
 					command:   result.Command,
-					stream:    result.Stream,
-					data:      result.DataBytes}
-			}
-			if result.Last && result.Command != nil { // All fragments received
-				dicomlog.Vprintf(1, "dicom.stateMachine(%s): DIMSE request: %v", sm.label, result.Command)
-				sm.upcallCh <- upcallEvent{
-					eventType: upcallEventData,
-					cm:        sm.contextManager,
-					contextID: result.ContextID,
-					command:   result.Command,
-					data:      result.DataBytes}
+					stream:    result.Stream}
 			}
 			return sta06
 		}
@@ -547,7 +538,6 @@ type upcallEvent struct {
 	contextID byte
 
 	command dimse.Message
-	data    []byte
 	stream  chan []byte
 }
 
@@ -754,10 +744,6 @@ type stateMachine struct {
 
 	// For sending indications to the the upper layer. Owned by the
 	// statemachine.
-	upcallCh chan upcallEvent
-
-	// For sending indications to the the upper layer. Owned by the
-	// statemachine.
 	upcallStreamCh chan upcallEvent
 
 	// For Timer expiration event
@@ -775,7 +761,7 @@ type stateMachine struct {
 }
 
 func closeConnection(sm *stateMachine) {
-	close(sm.upcallCh)
+	close(sm.upcallStreamCh)
 	dicomlog.Vprintf(1, "dicom.StateMachine %s: Closing connection %v", sm.label, sm.conn)
 	if sm.conn != nil {
 		sm.conn.Close()
@@ -906,7 +892,7 @@ func getNextEvent(sm *stateMachine) stateEvent {
 		doassert(event.conn != nil)
 		sm.conn = event.conn
 	case evt17:
-		close(sm.upcallCh)
+		close(sm.upcallStreamCh)
 		sm.conn = nil
 	}
 	return event
@@ -949,7 +935,7 @@ func runOneStep(sm *stateMachine) {
 
 func runStateMachineForServiceUser(
 	params ServiceUserParams,
-	upcallCh chan upcallEvent,
+	upcallStreamCh chan upcallEvent,
 	downcallCh chan stateEvent,
 	label string) {
 	doassert(params.CallingAETitle != "")
@@ -963,7 +949,7 @@ func runStateMachineForServiceUser(
 		netCh:            make(chan stateEvent, 128),
 		errorCh:          make(chan stateEvent, 128),
 		downcallCh:       downcallCh,
-		upcallCh:         upcallCh,
+		upcallStreamCh:   upcallStreamCh,
 		faults:           getUserFaultInjector(),
 		commandAssembler: dimse.NewCommandAssembler(),
 	}
@@ -978,7 +964,6 @@ func runStateMachineForServiceUser(
 
 func runStateMachineForServiceProvider(
 	conn net.Conn,
-	upcallCh chan upcallEvent,
 	upcallStreamCh chan upcallEvent,
 	downcallCh chan stateEvent,
 	label string) {
@@ -990,7 +975,6 @@ func runStateMachineForServiceProvider(
 		netCh:            make(chan stateEvent, 128),
 		errorCh:          make(chan stateEvent, 128),
 		downcallCh:       downcallCh,
-		upcallCh:         upcallCh,
 		upcallStreamCh:   upcallStreamCh,
 		faults:           getProviderFaultInjector(),
 		commandAssembler: dimse.NewCommandAssembler(),

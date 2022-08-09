@@ -46,13 +46,6 @@ func handleCStoreStream(
 		Status:                    status,
 	}
 	cs.sendMessage(resp, nil)
-
-	conn.Close()
-	cs.disp.downcallCh <- stateEvent{
-		event: evt17,
-		pdu:   nil,
-		conn:  nil,
-	}
 }
 
 func handleCStore(
@@ -536,7 +529,6 @@ func getConnState(conn net.Conn) (cs ConnectionState) {
 // RunProviderForConn starts threads for running a DICOM server on "conn". This
 // function returns immediately; "conn" will be cleaned up in the background.
 func RunProviderForConn(conn net.Conn, params ServiceProviderParams) {
-	upcallCh := make(chan upcallEvent, 128)
 	upcallStreamCh := make(chan upcallEvent, 128)
 	label := newUID("sc")
 	disp := newServiceDispatcher(label)
@@ -568,15 +560,10 @@ func RunProviderForConn(conn net.Conn, params ServiceProviderParams) {
 			handleCEcho(params, getConnState(conn), msg.(*dimse.CEchoRq), data, cs)
 		})
 	go func() {
-		runStateMachineForServiceProvider(conn, upcallCh, upcallStreamCh, disp.downcallCh, label)
+		runStateMachineForServiceProvider(conn, upcallStreamCh, disp.downcallCh, label)
 	}()
-	go func() {
-		for event := range upcallStreamCh {
-			disp.handleStreamEvent(event)
-		}
-	}()
-	for event := range upcallCh {
-		disp.handleEvent(event)
+	for event := range upcallStreamCh {
+		disp.handleStreamEvent(event)
 	}
 	dicomlog.Vprintf(0, "dicom.serviceProvider(%s): Finished connection %p (remote: %+v)", label, conn, conn.RemoteAddr())
 	disp.close()

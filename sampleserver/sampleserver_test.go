@@ -41,7 +41,9 @@ func runSCPTest(t testing.TB, port, aeTitle string, remoteAEs map[string]string,
 		params.CStoreStream = func(connState netdicom.ConnectionState, transferSyntaxUID string,
 			sopClassUID string,
 			sopInstanceUID string,
-			data chan []byte) dimse.Status {
+			dataCh chan []byte) dimse.Status {
+			for range dataCh {
+			}
 			return dimse.Success
 		}
 	}
@@ -72,7 +74,7 @@ func newTestClient(t testing.TB, isSync bool) *netdicom.ServiceUser {
 }
 
 func newTestDataset(t testing.TB) *godicom.DataSet {
-	pixelData := make([]byte, 10*1000*1000) // 10MB
+	pixelData := make([]byte, 100*1000*1000) // 100MB
 	rand.Read(pixelData)
 	var image godicom.PixelDataInfo
 	image.Frames = append(image.Frames, pixelData)

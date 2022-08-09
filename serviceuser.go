@@ -134,7 +134,7 @@ func NewServiceUser(params ServiceUserParams) (*ServiceUser, error) {
 				continue
 			}
 			doassert(event.eventType == upcallEventData)
-			su.disp.handleEvent(event)
+			su.disp.handleStreamEvent(event)
 		}
 		dicomlog.Vprintf(1, "dicom.serviceUser: dispatcher finished")
 		su.disp.close()
@@ -395,7 +395,11 @@ func (su *ServiceUser) CFind(qrLevel QRLevel, filter []*dicom.Element) chan CFin
 				ch <- CFindResult{Err: fmt.Errorf("Found wrong response for C-FIND: %v", event.command)}
 				break
 			}
-			elems, err := readElementsInBytes(event.data, context.transferSyntaxUID)
+			var data []byte
+			for bytes := range event.stream {
+				data = append(data, bytes...)
+			}
+			elems, err := readElementsInBytes(data, context.transferSyntaxUID)
 			if err != nil {
 				dicomlog.Vprintf(0, "dicom.serviceUser: Failed to decode C-FIND response: %v %v", resp.String(), err)
 				ch <- CFindResult{Err: err}

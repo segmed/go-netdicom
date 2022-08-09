@@ -21,9 +21,6 @@ type serviceDispatcher struct {
 	// Set of active DIMSE commands running. Keys are message IDs.
 	activeCommands map[dimse.MessageID]*serviceCommandState // guarded by mu
 
-	// Set of active stream DIMSE commands running. Keys are message IDs.
-	activeStreamCommands map[dimse.MessageID]*serviceCommandState // guarded by mu
-
 	// A callback to be called when a dimse request message arrives. Keys
 	// are DIMSE CommandField. The callback typically creates a new command
 	// by calling findOrCreateCommand.
@@ -123,17 +120,6 @@ func (disp *serviceDispatcher) newCommand(
 	return nil, fmt.Errorf("Failed to allocate a message ID (too many outstading?)")
 }
 
-func (disp *serviceDispatcher) deleteStreamCommand(
-	cs *serviceCommandState) {
-	disp.mu.Lock()
-	dicomlog.Vprintf(1, "dicom.serviceDispatcher(%s): Finish provider command %v", disp.label, cs.messageID)
-	if _, ok := disp.activeStreamCommands[cs.messageID]; !ok {
-		panic(fmt.Sprintf("cs %+v", cs))
-	}
-	delete(disp.activeStreamCommands, cs.messageID)
-	disp.mu.Unlock()
-}
-
 func (disp *serviceDispatcher) deleteCommand(cs *serviceCommandState) {
 	disp.mu.Lock()
 	dicomlog.Vprintf(1, "dicom.serviceDispatcher(%s): Finish provider command %v", disp.label, cs.messageID)
@@ -151,8 +137,15 @@ func (disp *serviceDispatcher) registerStreamCallback(commandField int, cb servi
 }
 
 func (disp *serviceDispatcher) registerCallback(commandField int, cb serviceCallback) {
+	streamCallback := func(msg dimse.Message, dataCh chan []byte, cs *serviceCommandState) {
+		var data []byte
+		for bytes := range dataCh {
+			data = append(data, bytes...)
+		}
+		cb(msg, data, cs)
+	}
 	disp.mu.Lock()
-	disp.callbacks[commandField] = cb
+	disp.streamCallbacks[commandField] = streamCallback
 	disp.mu.Unlock()
 }
 
@@ -188,22 +181,8 @@ func (disp *serviceDispatcher) _handleEvent(
 	cb(dc)
 }
 
-func (disp *serviceDispatcher) handleEvent(event upcallEvent) {
-	disp._handleEvent(event, disp.activeCommands, func(dc *serviceCommandState) {
-		disp.mu.Lock()
-		cb := disp.callbacks[event.command.CommandField()]
-		disp.mu.Unlock()
-		go func() {
-			if cb != nil {
-				cb(event.command, event.data, dc)
-			}
-			disp.deleteCommand(dc)
-		}()
-	})
-}
-
 func (disp *serviceDispatcher) handleStreamEvent(event upcallEvent) {
-	disp._handleEvent(event, disp.activeStreamCommands, func(dc *serviceCommandState) {
+	disp._handleEvent(event, disp.activeCommands, func(dc *serviceCommandState) {
 		disp.mu.Lock()
 		cb := disp.streamCallbacks[event.command.CommandField()]
 		disp.mu.Unlock()
@@ -211,7 +190,7 @@ func (disp *serviceDispatcher) handleStreamEvent(event upcallEvent) {
 			if cb != nil {
 				cb(event.command, event.stream, dc)
 			}
-			disp.deleteStreamCommand(dc)
+			disp.deleteCommand(dc)
 		}()
 	})
 }
@@ -223,9 +202,6 @@ func (disp *serviceDispatcher) close() {
 		for _, cs := range disp.activeCommands {
 			close(cs.upcallCh)
 		}
-		for _, cs := range disp.activeStreamCommands {
-			close(cs.upcallCh)
-		}
 		disp.mu.Unlock()
 	})
 	// TODO(saito): prevent new command from launching.
@@ -233,12 +209,11 @@ func (disp *serviceDispatcher) close() {
 
 func newServiceDispatcher(label string) *serviceDispatcher {
 	return &serviceDispatcher{
-		label:                label,
-		downcallCh:           make(chan stateEvent, 128),
-		activeCommands:       make(map[dimse.MessageID]*serviceCommandState),
-		activeStreamCommands: make(map[dimse.MessageID]*serviceCommandState),
-		callbacks:            make(map[int]serviceCallback),
-		streamCallbacks:      make(map[int]serviceStreamCallback),
-		lastMessageID:        123,
+		label:           label,
+		downcallCh:      make(chan stateEvent, 128),
+		activeCommands:  make(map[dimse.MessageID]*serviceCommandState),
+		callbacks:       make(map[int]serviceCallback),
+		streamCallbacks: make(map[int]serviceStreamCallback),
+		lastMessageID:   123,
 	}
 }
