@@ -57,9 +57,9 @@ type serviceCommandState struct {
 // Send a command+data combo to the remote peer. data may be nil.
 func (cs *serviceCommandState) sendMessage(cmd dimse.Message, data []byte) {
 	if s := cmd.GetStatus(); s != nil && s.Status != dimse.StatusSuccess && s.Status != dimse.StatusPending {
-		dicomlog.Vprintf(0, "dicom.serviceDispatcher(%s): Sending DIMSE error: %v %v", cs.disp.label, cmd, cs.disp)
+		dicomlog.Vprintf(0, "dicom.serviceDispatcher(%s): Sending DIMSE error: %v", cs.disp.label, cmd)
 	} else {
-		dicomlog.Vprintf(1, "dicom.serviceDispatcher(%s): Sending DIMSE message: %v %v", cs.disp.label, cmd, cs.disp)
+		dicomlog.Vprintf(1, "dicom.serviceDispatcher(%s): Sending DIMSE message: %v", cs.disp.label, cmd)
 	}
 	payload := &stateEventDIMSEPayload{
 		abstractSyntaxName: cs.context.abstractSyntaxUID,
