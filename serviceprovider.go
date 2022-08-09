@@ -24,11 +24,12 @@ type CMoveResult struct {
 
 func handleCStoreStream(
 	cb CStoreStreamCallback,
-	connState ConnectionState,
+	conn net.Conn,
 	c *dimse.CStoreRq,
 	dataChan chan []byte,
 	cs *serviceCommandState) {
 	status := dimse.Status{Status: dimse.StatusUnrecognizedOperation}
+	connState := getConnState(conn)
 	if cb != nil {
 		status = cb(
 			connState,
@@ -45,6 +46,13 @@ func handleCStoreStream(
 		Status:                    status,
 	}
 	cs.sendMessage(resp, nil)
+
+	conn.Close()
+	cs.disp.downcallCh <- stateEvent{
+		event: evt17,
+		pdu:   nil,
+		conn:  nil,
+	}
 }
 
 func handleCStore(
@@ -535,7 +543,7 @@ func RunProviderForConn(conn net.Conn, params ServiceProviderParams) {
 	if params.CStoreStream != nil {
 		disp.registerStreamCallback(dimse.CommandFieldCStoreRq,
 			func(msg dimse.Message, data chan []byte, cs *serviceCommandState) {
-				handleCStoreStream(params.CStoreStream, getConnState(conn), msg.(*dimse.CStoreRq), data, cs)
+				handleCStoreStream(params.CStoreStream, conn, msg.(*dimse.CStoreRq), data, cs)
 			})
 	} else {
 		disp.registerCallback(dimse.CommandFieldCStoreRq,

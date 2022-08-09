@@ -64,9 +64,6 @@ func (ss *server) onCStoreStream(
 	sopClassUID string,
 	sopInstanceUID string,
 	dataCh chan []byte) dimse.Status {
-	ss.mu.Lock()
-	defer ss.mu.Unlock()
-
 	buf := bytes.Buffer{}
 
 	e := dicomio.NewEncoderWithTransferSyntax(&buf, transferSyntaxUID)
@@ -82,7 +79,7 @@ func (ss *server) onCStoreStream(
 			log.Printf("write: %v", err)
 			return dimse.Status{Status: dimse.StatusNotAuthorized, ErrorComment: err.Error()}
 		}
-		log.Printf("C-STORE: Stored %v MB in buffer", len(buf.Bytes())/1024/1024)
+		log.Printf("C-STORE: Stored %.2f MB in buffer", float64(len(buf.Bytes()))/1024/1024)
 	}
 	return dimse.Success
 }
@@ -361,7 +358,7 @@ func main() {
 func runSCP(port string, dir string, remoteAEs map[string]string, tlsConfig *tls.Config) {
 	datasets, err := listDicomFiles(dir)
 	if err != nil {
-		log.Panicf("Failed to list DICOM files in %s: %v", *dirFlag, err)
+		log.Panicf("Failed to list DICOM files in %s: %v", dir, err)
 	}
 	ss := server{
 		mu:       &sync.Mutex{},

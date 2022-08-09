@@ -296,9 +296,10 @@ func NewCommandAssembler() CommandAssembler {
 	}
 }
 
-type AddDataPDUResults struct {
-	First     bool
-	Last      bool
+// AddDataPDUResult is for adding PDU results
+type AddDataPDUResult struct {
+	First     bool // First fragment if there's no data in buffer
+	Last      bool // Last fragment if the PDU marked as the last one
 	ContextID byte
 	Command   Message
 	DataBytes []byte
@@ -309,8 +310,8 @@ type AddDataPDUResults struct {
 // network. If the fragment is marked as the last one, AddDataPDU returns
 // <SOPUID, TransferSyntaxUID, payload, nil>.  If it needs more fragments, it
 // returns <"", "", nil, nil>.  On error, it returns a non-nil error.
-func (a *CommandAssembler) AddDataPDU(pdu *pdu.PDataTf) (AddDataPDUResults, error) {
-	var result AddDataPDUResults
+func (a *CommandAssembler) AddDataPDU(pdu *pdu.PDataTf) (AddDataPDUResult, error) {
+	var result AddDataPDUResult
 	result.First = len(a.dataBytes) == 0
 	result.Stream = a.stream
 	for _, item := range pdu.Items {
