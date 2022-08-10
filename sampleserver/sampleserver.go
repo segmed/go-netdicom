@@ -32,6 +32,7 @@ import (
 )
 
 var (
+	syncFlag     = flag.Bool("sync", true, "Whether to receive DICOM files synchronously")
 	portFlag     = flag.String("port", "10000", "TCP port to listen to")
 	aeFlag       = flag.String("ae", "bogusae", "AE title of this server")
 	remoteAEFlag = flag.String("remote-ae", "GBMAC0261:localhost:11112", `
@@ -354,10 +355,10 @@ func main() {
 		}
 	}
 
-	runSCP(port, *dirFlag, remoteAEs, tlsConfig)
+	runSCP(port, *dirFlag, *syncFlag, remoteAEs, tlsConfig)
 }
 
-func runSCP(port string, dir string, remoteAEs map[string]string, tlsConfig *tls.Config) {
+func runSCP(port string, dir string, isSync bool, remoteAEs map[string]string, tlsConfig *tls.Config) {
 	datasets, err := listDicomFiles(dir)
 	if err != nil {
 		log.Panicf("Failed to list DICOM files in %s: %v", dir, err)
@@ -387,19 +388,22 @@ func runSCP(port string, dir string, remoteAEs map[string]string, tlsConfig *tls
 			filter []*dicom.Element, ch chan netdicom.CMoveResult) {
 			ss.onCMoveOrCGet(transferSyntaxUID, sopClassUID, filter, ch)
 		},
-		CStore: func(connState netdicom.ConnectionState, transferSyntaxUID string,
+		TLSConfig: tlsConfig,
+	}
+	if isSync {
+		params.CStore = func(connState netdicom.ConnectionState, transferSyntaxUID string,
 			sopClassUID string,
 			sopInstanceUID string,
 			data []byte) dimse.Status {
 			return ss.onCStore(transferSyntaxUID, sopClassUID, sopInstanceUID, data)
-		},
-		CStoreStream: func(connState netdicom.ConnectionState, transferSyntaxUID string,
+		}
+	} else {
+		params.CStoreStream = func(connState netdicom.ConnectionState, transferSyntaxUID string,
 			sopClassUID string,
 			sopInstanceUID string,
 			data chan []byte) dimse.Status {
 			return ss.onCStoreStream(transferSyntaxUID, sopClassUID, sopInstanceUID, data)
-		},
-		TLSConfig: tlsConfig,
+		}
 	}
 	sp, err := netdicom.NewServiceProvider(params, port)
 	if err != nil {

@@ -134,7 +134,7 @@ func NewServiceUser(params ServiceUserParams) (*ServiceUser, error) {
 				continue
 			}
 			doassert(event.eventType == upcallEventData)
-			su.disp.handleStreamEvent(event)
+			su.disp.handleEvent(event)
 		}
 		dicomlog.Vprintf(1, "dicom.serviceUser: dispatcher finished")
 		su.disp.close()

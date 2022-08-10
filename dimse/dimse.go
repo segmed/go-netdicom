@@ -290,6 +290,7 @@ type CommandAssembler struct {
 	readAllData bool
 }
 
+// NewCommandAssembler creates a new CommandAssembler instance
 func NewCommandAssembler() CommandAssembler {
 	return CommandAssembler{
 		stream:             make(chan []byte, 128),
@@ -300,16 +301,17 @@ func NewCommandAssembler() CommandAssembler {
 // AddDataPDUResult is for adding PDU results
 type AddDataPDUResult struct {
 	First     bool // First fragment if there's no data in buffer
-	Last      bool // Last fragment if the given PDU marked as the last one
 	ContextID byte
 	Command   Message
 	Stream    chan []byte
 }
 
 // AddDataPDU is to be called for each P_DATA_TF PDU received from the
-// network. If the fragment is marked as the last one, AddDataPDU returns
-// <SOPUID, TransferSyntaxUID, payload, nil>.  If it needs more fragments, it
-// returns <"", "", nil, nil>.  On error, it returns a non-nil error.
+// network.
+// - If the fragment is first one, AddDataPDU returns
+//	<SOPUID, Coomand, payload chanel, First: true>, nil.
+// - If it needs more fragments, it returns <SOPUID, Command, payload chanel, First: false>, nil.
+// - On error, it returns a non-nil error.
 func (a *CommandAssembler) AddDataPDU(pdu *pdu.PDataTf) (AddDataPDUResult, error) {
 	var result AddDataPDUResult
 	result.First = a.isFirstCommandData
@@ -344,9 +346,10 @@ func (a *CommandAssembler) AddDataPDU(pdu *pdu.PDataTf) (AddDataPDUResult, error
 	if !a.readAllCommand {
 		return result, nil
 	}
-	if result.Command == nil {
+	if a.command == nil {
 		d := dicomio.NewBytesDecoder(a.commandBytes, nil, dicomio.UnknownVR)
-		result.Command = ReadMessage(d)
+		a.command = ReadMessage(d)
+		result.Command = a.command
 		if err := d.Finish(); err != nil {
 			return result, err
 		}
@@ -356,7 +359,6 @@ func (a *CommandAssembler) AddDataPDU(pdu *pdu.PDataTf) (AddDataPDUResult, error
 	}
 	close(a.stream)
 	*a = NewCommandAssembler()
-	result.Last = true
 	return result, nil
 	// TODO(saito) Verify that there's no unread items after the last command&data.
 }

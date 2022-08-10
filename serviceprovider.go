@@ -563,7 +563,7 @@ func RunProviderForConn(conn net.Conn, params ServiceProviderParams) {
 		runStateMachineForServiceProvider(conn, upcallStreamCh, disp.downcallCh, label)
 	}()
 	for event := range upcallStreamCh {
-		disp.handleStreamEvent(event)
+		disp.handleEvent(event)
 	}
 	dicomlog.Vprintf(0, "dicom.serviceProvider(%s): Finished connection %p (remote: %+v)", label, conn, conn.RemoteAddr())
 	disp.close()
