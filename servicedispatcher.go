@@ -24,7 +24,7 @@ type serviceDispatcher struct {
 	// A callback to be called when a dimse request message arrives. Keys
 	// are DIMSE CommandField. The callback typically creates a new command
 	// by calling findOrCreateCommand.
-	callbacks map[int]serviceCallback // guarded by mu
+	streamCallbacks map[int]serviceStreamCallback // guarded by mu
 
 	// The last message ID used in newCommand(). Used to avoid creating duplicate
 	// IDs.
@@ -32,6 +32,8 @@ type serviceDispatcher struct {
 }
 
 type serviceCallback func(msg dimse.Message, data []byte, cs *serviceCommandState)
+
+type serviceStreamCallback func(msg dimse.Message, dataChan chan []byte, cs *serviceCommandState)
 
 // Per-DIMSE-command state.
 type serviceCommandState struct {
@@ -47,9 +49,9 @@ type serviceCommandState struct {
 // Send a command+data combo to the remote peer. data may be nil.
 func (cs *serviceCommandState) sendMessage(cmd dimse.Message, data []byte) {
 	if s := cmd.GetStatus(); s != nil && s.Status != dimse.StatusSuccess && s.Status != dimse.StatusPending {
-		dicomlog.Vprintf(0, "dicom.serviceDispatcher(%s): Sending DIMSE error: %v %v", cs.disp.label, cmd, cs.disp)
+		dicomlog.Vprintf(0, "dicom.serviceDispatcher(%s): Sending DIMSE error: %v", cs.disp.label, cmd)
 	} else {
-		dicomlog.Vprintf(1, "dicom.serviceDispatcher(%s): Sending DIMSE message: %v %v", cs.disp.label, cmd, cs.disp)
+		dicomlog.Vprintf(1, "dicom.serviceDispatcher(%s): Sending DIMSE message: %v", cs.disp.label, cmd)
 	}
 	payload := &stateEventDIMSEPayload{
 		abstractSyntaxName: cs.context.abstractSyntaxUID,
@@ -122,15 +124,28 @@ func (disp *serviceDispatcher) deleteCommand(cs *serviceCommandState) {
 	disp.mu.Unlock()
 }
 
-func (disp *serviceDispatcher) registerCallback(commandField int, cb serviceCallback) {
+func (disp *serviceDispatcher) registerStreamCallback(commandField int, cb serviceStreamCallback) {
 	disp.mu.Lock()
-	disp.callbacks[commandField] = cb
+	disp.streamCallbacks[commandField] = cb
+	disp.mu.Unlock()
+}
+
+func (disp *serviceDispatcher) registerCallback(commandField int, cb serviceCallback) {
+	streamCallback := func(msg dimse.Message, dataCh chan []byte, cs *serviceCommandState) {
+		var data []byte
+		for bytes := range dataCh {
+			data = append(data, bytes...)
+		}
+		cb(msg, data, cs)
+	}
+	disp.mu.Lock()
+	disp.streamCallbacks[commandField] = streamCallback
 	disp.mu.Unlock()
 }
 
 func (disp *serviceDispatcher) unregisterCallback(commandField int) {
 	disp.mu.Lock()
-	delete(disp.callbacks, commandField)
+	delete(disp.streamCallbacks, commandField)
 	disp.mu.Unlock()
 }
 
@@ -155,10 +170,12 @@ func (disp *serviceDispatcher) handleEvent(event upcallEvent) {
 		return
 	}
 	disp.mu.Lock()
-	cb := disp.callbacks[event.command.CommandField()]
+	cb := disp.streamCallbacks[event.command.CommandField()]
 	disp.mu.Unlock()
 	go func() {
-		cb(event.command, event.data, dc)
+		if cb != nil {
+			cb(event.command, event.stream, dc)
+		}
 		disp.deleteCommand(dc)
 	}()
 }
@@ -177,10 +194,10 @@ func (disp *serviceDispatcher) close() {
 
 func newServiceDispatcher(label string) *serviceDispatcher {
 	return &serviceDispatcher{
-		label:          label,
-		downcallCh:     make(chan stateEvent, 128),
-		activeCommands: make(map[dimse.MessageID]*serviceCommandState),
-		callbacks:      make(map[int]serviceCallback),
-		lastMessageID:  123,
+		label:           label,
+		downcallCh:      make(chan stateEvent, 128),
+		activeCommands:  make(map[dimse.MessageID]*serviceCommandState),
+		streamCallbacks: make(map[int]serviceStreamCallback),
+		lastMessageID:   123,
 	}
 }

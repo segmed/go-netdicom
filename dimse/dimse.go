@@ -280,62 +280,86 @@ func EncodeMessage(e *dicomio.Encoder, v Message) {
 // CommandAssembler is a helper that assembles a DIMSE command message and data
 // payload from a sequence of P_DATA_TF PDUs.
 type CommandAssembler struct {
-	contextID      byte
-	commandBytes   []byte
-	command        Message
-	dataBytes      []byte
-	readAllCommand bool
+	contextID          byte
+	commandBytes       []byte
+	command            Message
+	stream             chan []byte
+	readAllCommand     bool
+	isFirstCommandData bool
 
 	readAllData bool
 }
 
+// NewCommandAssembler creates a new CommandAssembler instance
+func NewCommandAssembler() CommandAssembler {
+	return CommandAssembler{
+		stream:             make(chan []byte, 128),
+		isFirstCommandData: true,
+	}
+}
+
+// AddDataPDUResult is for adding PDU results
+type AddDataPDUResult struct {
+	First     bool // First fragment if there's no data in buffer
+	ContextID byte
+	Command   Message
+	Stream    chan []byte
+}
+
 // AddDataPDU is to be called for each P_DATA_TF PDU received from the
-// network. If the fragment is marked as the last one, AddDataPDU returns
-// <SOPUID, TransferSyntaxUID, payload, nil>.  If it needs more fragments, it
-// returns <"", "", nil, nil>.  On error, it returns a non-nil error.
-func (a *CommandAssembler) AddDataPDU(pdu *pdu.PDataTf) (byte, Message, []byte, error) {
+// network.
+// - If the fragment is first one, AddDataPDU returns
+//	<SOPUID, Coomand, payload chanel, First: true>, nil.
+// - If it needs more fragments, it returns <SOPUID, Command, payload chanel, First: false>, nil.
+// - On error, it returns a non-nil error.
+func (a *CommandAssembler) AddDataPDU(pdu *pdu.PDataTf) (AddDataPDUResult, error) {
+	var result AddDataPDUResult
+	result.First = a.isFirstCommandData
+	result.Stream = a.stream
 	for _, item := range pdu.Items {
 		if a.contextID == 0 {
 			a.contextID = item.ContextID
 		} else if a.contextID != item.ContextID {
-			return 0, nil, nil, fmt.Errorf("Mixed context: %d %d", a.contextID, item.ContextID)
+			return result, fmt.Errorf("Mixed context: %d %d", a.contextID, item.ContextID)
 		}
 		if item.Command {
 			a.commandBytes = append(a.commandBytes, item.Value...)
 			if item.Last {
 				if a.readAllCommand {
-					return 0, nil, nil, fmt.Errorf("P_DATA_TF: found >1 command chunks with the Last bit set")
+					return result, fmt.Errorf("P_DATA_TF: found >1 command chunks with the Last bit set")
 				}
 				a.readAllCommand = true
 			}
 		} else {
-			a.dataBytes = append(a.dataBytes, item.Value...)
+			a.isFirstCommandData = false
+			a.stream <- item.Value
 			if item.Last {
 				if a.readAllData {
-					return 0, nil, nil, fmt.Errorf("P_DATA_TF: found >1 data chunks with the Last bit set")
+					return result, fmt.Errorf("P_DATA_TF: found >1 data chunks with the Last bit set")
 				}
 				a.readAllData = true
 			}
 		}
 	}
+	result.ContextID = a.contextID
+	result.Command = a.command
 	if !a.readAllCommand {
-		return 0, nil, nil, nil
+		return result, nil
 	}
 	if a.command == nil {
 		d := dicomio.NewBytesDecoder(a.commandBytes, nil, dicomio.UnknownVR)
 		a.command = ReadMessage(d)
+		result.Command = a.command
 		if err := d.Finish(); err != nil {
-			return 0, nil, nil, err
+			return result, err
 		}
 	}
-	if a.command.HasData() && !a.readAllData {
-		return 0, nil, nil, nil
+	if result.Command.HasData() && !a.readAllData {
+		return result, nil
 	}
-	contextID := a.contextID
-	command := a.command
-	dataBytes := a.dataBytes
-	*a = CommandAssembler{}
-	return contextID, command, dataBytes, nil
+	close(a.stream)
+	*a = NewCommandAssembler()
+	return result, nil
 	// TODO(saito) Verify that there's no unread items after the last command&data.
 }
 

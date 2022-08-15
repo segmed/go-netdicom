@@ -7,12 +7,15 @@ package main
 // It starts a DICOM server and serves files under <directory>.
 
 import (
+	"bytes"
 	"crypto/tls"
 	"crypto/x509"
 	"flag"
 	"fmt"
 	"io/ioutil"
 	"log"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"path"
 	"path/filepath"
@@ -29,6 +32,7 @@ import (
 )
 
 var (
+	syncFlag     = flag.Bool("sync", true, "Whether to receive DICOM files synchronously")
 	portFlag     = flag.String("port", "10000", "TCP port to listen to")
 	aeFlag       = flag.String("ae", "bogusae", "AE title of this server")
 	remoteAEFlag = flag.String("remote-ae", "GBMAC0261:localhost:11112", `
@@ -56,6 +60,31 @@ type server struct {
 
 	// For generating new unique path in C-STORE. Guarded by mu.
 	pathSeq int32
+}
+
+func (ss *server) onCStoreStream(
+	transferSyntaxUID string,
+	sopClassUID string,
+	sopInstanceUID string,
+	dataCh chan []byte) dimse.Status {
+	buf := bytes.Buffer{}
+
+	e := dicomio.NewEncoderWithTransferSyntax(&buf, transferSyntaxUID)
+	dicom.WriteFileHeader(e,
+		[]*dicom.Element{
+			dicom.MustNewElement(dicomtag.TransferSyntaxUID, transferSyntaxUID),
+			dicom.MustNewElement(dicomtag.MediaStorageSOPClassUID, sopClassUID),
+			dicom.MustNewElement(dicomtag.MediaStorageSOPInstanceUID, sopInstanceUID),
+		})
+	for data := range dataCh {
+		e.WriteBytes(data)
+		if err := e.Error(); err != nil {
+			log.Printf("write: %v", err)
+			return dimse.Status{Status: dimse.StatusNotAuthorized, ErrorComment: err.Error()}
+		}
+		log.Printf("C-STORE: Stored %.2f MB in buffer", float64(len(buf.Bytes()))/1024/1024)
+	}
+	return dimse.Success
 }
 
 func (ss *server) onCStore(
@@ -326,13 +355,13 @@ func main() {
 		}
 	}
 
-	runSCP(port, *dirFlag, remoteAEs, tlsConfig)
+	runSCP(port, *dirFlag, *syncFlag, remoteAEs, tlsConfig)
 }
 
-func runSCP(port string, dir string, remoteAEs map[string]string, tlsConfig *tls.Config) {
+func runSCP(port string, dir string, isSync bool, remoteAEs map[string]string, tlsConfig *tls.Config) {
 	datasets, err := listDicomFiles(dir)
 	if err != nil {
-		log.Panicf("Failed to list DICOM files in %s: %v", *dirFlag, err)
+		log.Panicf("Failed to list DICOM files in %s: %v", dir, err)
 	}
 	ss := server{
 		mu:       &sync.Mutex{},
@@ -359,17 +388,29 @@ func runSCP(port string, dir string, remoteAEs map[string]string, tlsConfig *tls
 			filter []*dicom.Element, ch chan netdicom.CMoveResult) {
 			ss.onCMoveOrCGet(transferSyntaxUID, sopClassUID, filter, ch)
 		},
-		CStore: func(connState netdicom.ConnectionState, transferSyntaxUID string,
+		TLSConfig: tlsConfig,
+	}
+	if isSync {
+		params.CStore = func(connState netdicom.ConnectionState, transferSyntaxUID string,
 			sopClassUID string,
 			sopInstanceUID string,
 			data []byte) dimse.Status {
 			return ss.onCStore(transferSyntaxUID, sopClassUID, sopInstanceUID, data)
-		},
-		TLSConfig: tlsConfig,
+		}
+	} else {
+		params.CStoreStream = func(connState netdicom.ConnectionState, transferSyntaxUID string,
+			sopClassUID string,
+			sopInstanceUID string,
+			data chan []byte) dimse.Status {
+			return ss.onCStoreStream(transferSyntaxUID, sopClassUID, sopInstanceUID, data)
+		}
 	}
 	sp, err := netdicom.NewServiceProvider(params, port)
 	if err != nil {
 		panic(err)
 	}
+	go func() {
+		fmt.Println(http.ListenAndServe("localhost:6060", nil))
+	}()
 	sp.Run()
 }

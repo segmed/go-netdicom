@@ -13,7 +13,7 @@ import (
 func TestClient_Echo(t *testing.T) {
 	var port = MustAllocateFreePort()
 	go func() {
-		runSCP(net.JoinHostPort("localhost", port), "", nil, nil)
+		runSCP(net.JoinHostPort("localhost", port), "", true, nil, nil)
 	}()
 	waitForReply(t, port)
 }

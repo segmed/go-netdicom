@@ -186,7 +186,7 @@ var actionAe3 = &stateAction{"AE-3", "Issue A-ASSOCIATE confirmation (accept) pr
 		doassert(v.Type == pdu.TypeAAssociateAc)
 		err := sm.contextManager.onAssociateResponse(v.Items)
 		if err == nil {
-			sm.upcallCh <- upcallEvent{
+			sm.upcallStreamCh <- upcallEvent{
 				eventType: upcallEventHandshakeCompleted,
 				cm:        sm.contextManager,
 			}
@@ -266,7 +266,7 @@ otherwise issue A-ASSOCIATE-RJ-PDU and start ARTIM timer`,
 var actionAe7 = &stateAction{"AE-7", "Send A-ASSOCIATE-AC PDU",
 	func(sm *stateMachine, event stateEvent) stateType {
 		sendPDU(sm, event.pdu.(*pdu.AAssociate))
-		sm.upcallCh <- upcallEvent{
+		sm.upcallStreamCh <- upcallEvent{
 			eventType: upcallEventHandshakeCompleted,
 			cm:        sm.contextManager,
 		}
@@ -344,16 +344,16 @@ var actionDt1 = &stateAction{"DT-1", "Send P-DATA-TF PDU",
 
 var actionDt2 = &stateAction{"DT-2", "Send P-DATA indication primitive",
 	func(sm *stateMachine, event stateEvent) stateType {
-		contextID, command, data, err := sm.commandAssembler.AddDataPDU(event.pdu.(*pdu.PDataTf))
+		result, err := sm.commandAssembler.AddDataPDU(event.pdu.(*pdu.PDataTf))
 		if err == nil {
-			if command != nil { // All fragments received
-				dicomlog.Vprintf(1, "dicom.stateMachine(%s): DIMSE request: %v", sm.label, command)
-				sm.upcallCh <- upcallEvent{
+			if result.First && sm.upcallStreamCh != nil {
+				dicomlog.Vprintf(1, "dicom.stateMachine(%s): DIMSE request: %v", sm.label, result.Command)
+				sm.upcallStreamCh <- upcallEvent{
 					eventType: upcallEventData,
 					cm:        sm.contextManager,
-					contextID: contextID,
-					command:   command,
-					data:      data}
+					contextID: result.ContextID,
+					command:   result.Command,
+					stream:    result.Stream}
 			}
 			return sta06
 		}
@@ -538,7 +538,7 @@ type upcallEvent struct {
 	contextID byte
 
 	command dimse.Message
-	data    []byte
+	stream  chan []byte
 }
 
 type stateEventDIMSEPayload struct {
@@ -744,7 +744,7 @@ type stateMachine struct {
 
 	// For sending indications to the the upper layer. Owned by the
 	// statemachine.
-	upcallCh chan upcallEvent
+	upcallStreamCh chan upcallEvent
 
 	// For Timer expiration event
 	timerCh chan stateEvent
@@ -761,7 +761,7 @@ type stateMachine struct {
 }
 
 func closeConnection(sm *stateMachine) {
-	close(sm.upcallCh)
+	close(sm.upcallStreamCh)
 	dicomlog.Vprintf(1, "dicom.StateMachine %s: Closing connection %v", sm.label, sm.conn)
 	if sm.conn != nil {
 		sm.conn.Close()
@@ -892,7 +892,7 @@ func getNextEvent(sm *stateMachine) stateEvent {
 		doassert(event.conn != nil)
 		sm.conn = event.conn
 	case evt17:
-		close(sm.upcallCh)
+		close(sm.upcallStreamCh)
 		sm.conn = nil
 	}
 	return event
@@ -935,22 +935,23 @@ func runOneStep(sm *stateMachine) {
 
 func runStateMachineForServiceUser(
 	params ServiceUserParams,
-	upcallCh chan upcallEvent,
+	upcallStreamCh chan upcallEvent,
 	downcallCh chan stateEvent,
 	label string) {
 	doassert(params.CallingAETitle != "")
 	doassert(len(params.SOPClasses) > 0)
 	doassert(len(params.TransferSyntaxes) > 0)
 	sm := &stateMachine{
-		label:          label,
-		isUser:         true,
-		contextManager: newContextManager(label),
-		userParams:     params,
-		netCh:          make(chan stateEvent, 128),
-		errorCh:        make(chan stateEvent, 128),
-		downcallCh:     downcallCh,
-		upcallCh:       upcallCh,
-		faults:         getUserFaultInjector(),
+		label:            label,
+		isUser:           true,
+		contextManager:   newContextManager(label),
+		userParams:       params,
+		netCh:            make(chan stateEvent, 128),
+		errorCh:          make(chan stateEvent, 128),
+		downcallCh:       downcallCh,
+		upcallStreamCh:   upcallStreamCh,
+		faults:           getUserFaultInjector(),
+		commandAssembler: dimse.NewCommandAssembler(),
 	}
 	event := stateEvent{event: evt01}
 	action := findAction(sta01, &event, sm.label)
@@ -963,19 +964,20 @@ func runStateMachineForServiceUser(
 
 func runStateMachineForServiceProvider(
 	conn net.Conn,
-	upcallCh chan upcallEvent,
+	upcallStreamCh chan upcallEvent,
 	downcallCh chan stateEvent,
 	label string) {
 	sm := &stateMachine{
-		label:          label,
-		isUser:         false,
-		contextManager: newContextManager(label),
-		conn:           conn,
-		netCh:          make(chan stateEvent, 128),
-		errorCh:        make(chan stateEvent, 128),
-		downcallCh:     downcallCh,
-		upcallCh:       upcallCh,
-		faults:         getProviderFaultInjector(),
+		label:            label,
+		isUser:           false,
+		contextManager:   newContextManager(label),
+		conn:             conn,
+		netCh:            make(chan stateEvent, 128),
+		errorCh:          make(chan stateEvent, 128),
+		downcallCh:       downcallCh,
+		upcallStreamCh:   upcallStreamCh,
+		faults:           getProviderFaultInjector(),
+		commandAssembler: dimse.NewCommandAssembler(),
 	}
 	event := stateEvent{event: evt05, conn: conn}
 	action := findAction(sta01, &event, sm.label)
