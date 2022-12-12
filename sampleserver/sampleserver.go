@@ -75,7 +75,7 @@ func (ss *server) onCStoreStream(
 			dicom.MustNewElement(dicomtag.TransferSyntaxUID, transferSyntaxUID),
 			dicom.MustNewElement(dicomtag.MediaStorageSOPClassUID, sopClassUID),
 			dicom.MustNewElement(dicomtag.MediaStorageSOPInstanceUID, sopInstanceUID),
-		})
+		}, &dicom.WriteOptSet{})
 	for data := range dataCh {
 		e.WriteBytes(data)
 		if err := e.Error(); err != nil {
@@ -120,7 +120,7 @@ func (ss *server) onCStore(
 			dicom.MustNewElement(dicomtag.TransferSyntaxUID, transferSyntaxUID),
 			dicom.MustNewElement(dicomtag.MediaStorageSOPClassUID, sopClassUID),
 			dicom.MustNewElement(dicomtag.MediaStorageSOPInstanceUID, sopInstanceUID),
-		})
+		}, &dicom.WriteOptSet{})
 	e.WriteBytes(data)
 	if err := e.Error(); err != nil {
 		log.Printf("%s: write: %v", path, err)

@@ -223,7 +223,11 @@ func (su *ServiceUser) CEcho() error {
 // until the operation finishes.
 //
 // REQUIRES: Connect() or SetConn has been called.
-func (su *ServiceUser) CStore(ds *dicom.DataSet) error {
+func (su *ServiceUser) CStore(ds *dicom.DataSet, opts ...dicom.WriteOption) error {
+	optsSet := &dicom.WriteOptSet{}
+	for _, opt := range opts {
+		opt(optsSet)
+	}
 	err := su.waitUntilReady()
 	if err != nil {
 		return err
@@ -249,7 +253,7 @@ func (su *ServiceUser) CStore(ds *dicom.DataSet) error {
 		return err
 	}
 	defer su.disp.deleteCommand(cs)
-	return runCStoreOnAssociation(cs.upcallCh, su.disp.downcallCh, su.cm, cs.messageID, ds)
+	return runCStoreOnAssociation(cs.upcallCh, su.disp.downcallCh, su.cm, cs.messageID, ds, optsSet)
 }
 
 // QRLevel is used to specify the element hierarchy assumed during C-FIND,
@@ -328,13 +332,13 @@ func encodeQRPayload(opType qrOpType, qrLevel QRLevel, filter []*dicom.Element, 
 		if elem.Tag == dicomtag.QueryRetrieveLevel {
 			foundQRLevel = true
 		}
-		dicom.WriteElement(dataEncoder, elem)
+		dicom.WriteElement(dataEncoder, elem, &dicom.WriteOptSet{})
 		dicomlog.Vprintf(2, "dicom.serviceUser: Add QR payload: %v", elem)
 	}
 	if !foundQRLevel {
 		elem := dicom.MustNewElement(dicomtag.QueryRetrieveLevel, qrLevelString)
 		dicomlog.Vprintf(2, "dicom.serviceUser: Add QR payload: %v", elem)
-		dicom.WriteElement(dataEncoder, elem)
+		dicom.WriteElement(dataEncoder, elem, &dicom.WriteOptSet{})
 	}
 	if err := dataEncoder.Error(); err != nil {
 		return context, nil, err

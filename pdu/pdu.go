@@ -499,7 +499,7 @@ func ReadPDU(in io.Reader, maxPDUSize int) (PDU, error) {
 	}
 	d := dicomio.NewDecoder(
 		&io.LimitedReader{R: in, N: int64(length)},
-		binary.BigEndian,  // PDU is always big endian
+		binary.BigEndian, // PDU is always big endian
 		dicomio.UnknownVR) // irrelevant for PDU parsing
 	var pdu PDU
 	switch pduType {
@@ -743,7 +743,7 @@ func (pdu *PDataTf) WritePayload(e *dicomio.Encoder) {
 
 func (pdu *PDataTf) String() string {
 	buf := bytes.Buffer{}
-	buf.WriteString(fmt.Sprintf("P_DATA_TF{items: ["))
+	buf.WriteString("P_DATA_TF{items: [")
 	for i, item := range pdu.Items {
 		if i > 0 {
 			buf.WriteString("\n")

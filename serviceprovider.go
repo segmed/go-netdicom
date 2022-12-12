@@ -10,6 +10,7 @@ import (
 	dicom "github.com/grailbio/go-dicom"
 	"github.com/grailbio/go-dicom/dicomio"
 	"github.com/grailbio/go-dicom/dicomlog"
+
 	"github.com/grailbio/go-netdicom/dimse"
 	"github.com/grailbio/go-netdicom/sopclass"
 )
@@ -265,7 +266,8 @@ func handleCGet(
 			}
 			break
 		}
-		err = runCStoreOnAssociation(subCs.upcallCh, subCs.disp.downcallCh, subCs.cm, subCs.messageID, resp.DataSet)
+		err = runCStoreOnAssociation(subCs.upcallCh, subCs.disp.downcallCh, subCs.cm,
+			subCs.messageID, resp.DataSet, &dicom.WriteOptSet{})
 		if err != nil {
 			dicomlog.Vprintf(0, "dicom.serviceProvider: C-GET: C-store of %v failed: %v", resp.Path, err)
 			numFailures++
@@ -444,7 +446,7 @@ type ServiceProvider struct {
 func writeElementsToBytes(elems []*dicom.Element, transferSyntaxUID string) ([]byte, error) {
 	dataEncoder := dicomio.NewBytesEncoderWithTransferSyntax(transferSyntaxUID)
 	for _, elem := range elems {
-		dicom.WriteElement(dataEncoder, elem)
+		dicom.WriteElement(dataEncoder, elem, &dicom.WriteOptSet{})
 	}
 	if err := dataEncoder.Error(); err != nil {
 		return nil, err

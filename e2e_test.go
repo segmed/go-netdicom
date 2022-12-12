@@ -17,10 +17,11 @@ import (
 	"github.com/grailbio/go-dicom/dicomio"
 	"github.com/grailbio/go-dicom/dicomtag"
 	"github.com/grailbio/go-dicom/dicomuid"
-	"github.com/grailbio/go-netdicom/dimse"
-	"github.com/grailbio/go-netdicom/sopclass"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/grailbio/go-netdicom/dimse"
+	"github.com/grailbio/go-netdicom/sopclass"
 )
 
 var provider *ServiceProvider
@@ -67,7 +68,7 @@ func onCStoreRequest(
 			dicom.MustNewElement(dicomtag.TransferSyntaxUID, transferSyntaxUID),
 			dicom.MustNewElement(dicomtag.MediaStorageSOPClassUID, sopClassUID),
 			dicom.MustNewElement(dicomtag.MediaStorageSOPInstanceUID, sopInstanceUID),
-		})
+		}, &dicom.WriteOptSet{})
 	e.WriteBytes(data)
 	cstoreData = e.Bytes()
 	log.Printf("Received C-STORE request, %d bytes", len(cstoreData))
@@ -359,7 +360,7 @@ func TestCGet(t *testing.T) {
 					dicom.MustNewElement(dicomtag.TransferSyntaxUID, transferSyntaxUID),
 					dicom.MustNewElement(dicomtag.MediaStorageSOPClassUID, sopClassUID),
 					dicom.MustNewElement(dicomtag.MediaStorageSOPInstanceUID, sopInstanceUID),
-				})
+				}, &dicom.WriteOptSet{})
 			e.WriteBytes(data)
 			cgetData = e.Bytes()
 			return dimse.Success
