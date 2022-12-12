@@ -8,15 +8,15 @@ import (
 	"github.com/grailbio/go-dicom/dicomlog"
 	"github.com/grailbio/go-dicom/dicomtag"
 	"github.com/grailbio/go-dicom/dicomuid"
+
 	"github.com/grailbio/go-netdicom/dimse"
 )
 
 // Helper function used by C-{STORE,GET,MOVE} to send a dataset using C-STORE
 // over an already-established association.
 func runCStoreOnAssociation(upcallCh chan upcallEvent, downcallCh chan stateEvent,
-	cm *contextManager,
-	messageID dimse.MessageID,
-	ds *dicom.DataSet) error {
+	cm *contextManager, messageID dimse.MessageID,
+	ds *dicom.DataSet, opts *dicom.WriteOptSet) error {
 	var getElement = func(tag dicomtag.Tag) (string, error) {
 		elem, err := ds.FindElementByTag(tag)
 		if err != nil {
@@ -52,7 +52,7 @@ func runCStoreOnAssociation(upcallCh chan upcallEvent, downcallCh chan stateEven
 		if elem.Tag.Group == dicomtag.MetadataGroup {
 			continue
 		}
-		dicom.WriteElement(bodyEncoder, elem)
+		dicom.WriteElement(bodyEncoder, elem, opts)
 	}
 	if err := bodyEncoder.Error(); err != nil {
 		dicomlog.Vprintf(0, "dicom.cstore(%s): body encoder failed: %v", cm.label, err)

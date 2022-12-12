@@ -16,6 +16,7 @@ import (
 	"github.com/grailbio/go-dicom/dicomio"
 	"github.com/grailbio/go-dicom/dicomlog"
 	"github.com/grailbio/go-dicom/dicomtag"
+
 	"github.com/grailbio/go-netdicom/pdu"
 )
 
@@ -155,7 +156,7 @@ func encodeElements(e *dicomio.Encoder, elems []*dicom.Element) {
 		return elems[i].Tag.Compare(elems[j].Tag) < 0
 	})
 	for _, elem := range elems {
-		dicom.WriteElement(e, elem)
+		dicom.WriteElement(e, elem, &dicom.WriteOptSet{})
 	}
 }
 
@@ -273,7 +274,7 @@ func EncodeMessage(e *dicomio.Encoder, v Message) {
 	bytes := subEncoder.Bytes()
 	e.PushTransferSyntax(binary.LittleEndian, dicomio.ImplicitVR)
 	defer e.PopTransferSyntax()
-	dicom.WriteElement(e, newElement(dicomtag.CommandGroupLength, uint32(len(bytes))))
+	dicom.WriteElement(e, newElement(dicomtag.CommandGroupLength, uint32(len(bytes))), &dicom.WriteOptSet{})
 	e.WriteBytes(bytes)
 }
 
