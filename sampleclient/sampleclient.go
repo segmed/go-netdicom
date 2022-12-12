@@ -49,7 +49,7 @@ func cStore(inPath string) {
 	if err != nil {
 		log.Panicf("%s: %v", inPath, err)
 	}
-	err = su.CStore(dataset)
+	err = su.CStore(dataset, dicom.SkipVRVerification())
 	if err != nil {
 		log.Panicf("%s: cstore failed: %v", inPath, err)
 	}
