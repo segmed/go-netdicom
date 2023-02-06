@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/grailbio/go-dicom"
 	"github.com/grailbio/go-dicom/dicomio"
@@ -156,6 +157,23 @@ func (su *ServiceUser) waitUntilReady() error {
 		// Will get an error when waiting for a response.
 		dicomlog.Vprintf(0, "dicom.serviceUser: Connection failed")
 		return fmt.Errorf("dicom.serviceUser: Connection failed")
+	}
+	return nil
+}
+
+// Connect connects to the server at the given "host:port". Either Connect or
+// SetConn must be before calling CStore, etc.
+func (su *ServiceUser) ConnectWithTimeout(serverAddr string, timeout time.Duration) error {
+	if su.status != serviceUserInitial {
+		panic(fmt.Sprintf("dicom.serviceUser: Connect called with wrong state: %v", su.status))
+	}
+	conn, err := net.DialTimeout("tcp", serverAddr, timeout)
+	if err != nil {
+		dicomlog.Vprintf(0, "dicom.serviceUser: Connect(%s): %v", serverAddr, err)
+		su.disp.downcallCh <- stateEvent{event: evt17, pdu: nil, err: err}
+		return fmt.Errorf("net.DialTimeout: %w", err)
+	} else {
+		su.disp.downcallCh <- stateEvent{event: evt02, pdu: nil, err: nil, conn: conn}
 	}
 	return nil
 }
