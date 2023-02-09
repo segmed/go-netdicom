@@ -5,6 +5,7 @@ package netdicom
 //go:generate stringer -type QRLevel
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"sync"
@@ -160,19 +161,28 @@ func (su *ServiceUser) waitUntilReady() error {
 	return nil
 }
 
-// Connect connects to the server at the given "host:port". Either Connect or
+// ConnectContext connects to the server at the given "host:port". Either Connect or
 // SetConn must be before calling CStore, etc.
-func (su *ServiceUser) Connect(serverAddr string) {
+func (su *ServiceUser) ConnectContext(ctx context.Context, serverAddr string) error {
 	if su.status != serviceUserInitial {
 		panic(fmt.Sprintf("dicom.serviceUser: Connect called with wrong state: %v", su.status))
 	}
-	conn, err := net.Dial("tcp", serverAddr)
+	var d net.Dialer
+	conn, err := d.DialContext(ctx, "tcp", serverAddr)
 	if err != nil {
 		dicomlog.Vprintf(0, "dicom.serviceUser: Connect(%s): %v", serverAddr, err)
 		su.disp.downcallCh <- stateEvent{event: evt17, pdu: nil, err: err}
+		return fmt.Errorf("net.DialTimeout: %w", err)
 	} else {
 		su.disp.downcallCh <- stateEvent{event: evt02, pdu: nil, err: nil, conn: conn}
 	}
+	return nil
+}
+
+// Connect connects to the server at the given "host:port". Either Connect or
+// SetConn must be before calling CStore, etc.
+func (su *ServiceUser) Connect(serverAddr string) error {
+	return su.ConnectContext(context.Background(), serverAddr)
 }
 
 // SetConn instructs ServiceUser to use the given network connection to talk to
