@@ -29,14 +29,14 @@ const (
 
 // ServiceUser encapsulates implements the client side of DICOM network protocol.
 //
-//  user, err := netdicom.NewServiceUser(netdicom.ServiceUserParams{SOPClasses: sopclass.QRFindClasses})
-//  // Connect to server 1.2.3.4, port 8888
-//  user.Connect("1.2.3.4:8888")
-//  // Send test.dcm to the server
-//  ds, err := dicom.ReadDataSetFromFile("test.dcm", dicom.ReadOptions{})
-//  err := user.CStore(ds)
-//  // Disconnect
-//  user.Release()
+//	user, err := netdicom.NewServiceUser(netdicom.ServiceUserParams{SOPClasses: sopclass.QRFindClasses})
+//	// Connect to server 1.2.3.4, port 8888
+//	user.Connect("1.2.3.4:8888")
+//	// Send test.dcm to the server
+//	ds, err := dicom.ReadDataSetFromFile("test.dcm", dicom.ReadOptions{})
+//	err := user.CStore(ds)
+//	// Disconnect
+//	user.Release()
 //
 // The ServiceUser class is thread compatible. That is, you cannot call C*
 // methods - say CStore and CFind requests - concurrently from two goroutines.
@@ -517,18 +517,19 @@ receiveLoop:
 	return nil
 }
 
-func (su *ServiceUser) CMove(moveDestination string, qrLevel QRLevel, filter []*dicom.Element) error {
+func (su *ServiceUser) CMove(moveDestination string, qrLevel QRLevel, filter []*dicom.Element) (*dimse.CMoveRsp, error) {
+	var resp *dimse.CMoveRsp
 	err := su.waitUntilReady()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	context, payload, err := encodeQRPayload(qrOpCMove, qrLevel, filter, su.cm)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	cs, err := su.disp.newCommand(su.cm, context)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer su.disp.deleteCommand(cs)
 
@@ -546,13 +547,13 @@ receiveLoop:
 		event, ok := <-cs.upcallCh
 		if !ok {
 			su.status = serviceUserClosed
-			return fmt.Errorf("connection closed while waiting for C-MOVE response")
+			return nil, fmt.Errorf("connection closed while waiting for C-MOVE response")
 		}
 		doassert(event.eventType == upcallEventData)
 		doassert(event.command != nil)
-		resp, ok := event.command.(*dimse.CMoveRsp)
+		resp, ok = event.command.(*dimse.CMoveRsp)
 		if !ok {
-			return fmt.Errorf("found wrong response for C-MOVE: %v", event.command)
+			return nil, fmt.Errorf("found wrong response for C-MOVE: %v", event.command)
 		}
 		switch resp.Status.Status {
 		case dimse.StatusPending:
@@ -564,10 +565,10 @@ receiveLoop:
 		default:
 			e := fmt.Errorf("received C-MOVE error: %+v", resp)
 			dicomlog.Vprintf(0, "dicom.serviceUser: C-MOVE received response not success: %v", e)
-			return e
+			return nil, e
 		}
 	}
-	return nil
+	return resp, err
 }
 
 // Release shuts down the connection. It must be called exactly once.  After

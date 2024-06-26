@@ -91,10 +91,13 @@ func cMove() {
 	su := newServiceUser(sopclass.QRMoveClasses)
 	defer su.Release()
 	qrLevel, args := generateCFindElements()
-	if err := su.CMove(*moveAETitleFlag, qrLevel, args); err != nil {
+	resp, err := su.CMove(*moveAETitleFlag, qrLevel, args)
+	if err != nil {
 		log.Printf("C-MOVE error: %v", err)
 	} else {
-		log.Print("C-MOVE finished")
+		log.Print("C-MOVE finished\n")
+		log.Printf("NumberOfCompletedSuboperations: %d\n", resp.NumberOfCompletedSuboperations)
+		log.Printf("NumberOfFailedSuboperations: %d\n", resp.NumberOfFailedSuboperations)
 	}
 }
 
