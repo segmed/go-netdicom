@@ -569,7 +569,7 @@ handleEvtLoop:
 	for {
 		select {
 		case event, ok := <-upcallStreamCh:
-			if ok {
+			if !ok {
 				break handleEvtLoop
 			}
 			disp.handleEvent(event)
