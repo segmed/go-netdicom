@@ -25,6 +25,7 @@ import (
 
 	"github.com/grailbio/go-dicom"
 	"github.com/grailbio/go-dicom/dicomio"
+	"github.com/grailbio/go-dicom/dicomlog"
 	"github.com/grailbio/go-dicom/dicomtag"
 	"github.com/grailbio/go-dicom/dicomuid"
 	"github.com/grailbio/go-netdicom"
@@ -334,6 +335,8 @@ func main() {
 	if err != nil {
 		log.Panicf("Failed to parse -remote-ae flag: %v", err)
 	}
+
+	dicomlog.SetLevel(2)
 
 	var tlsConfig *tls.Config
 	if *tlsKeyFlag != "" {

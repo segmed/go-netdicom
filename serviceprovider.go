@@ -3,6 +3,7 @@
 package netdicom
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"net"
@@ -530,7 +531,7 @@ func getConnState(conn net.Conn) (cs ConnectionState) {
 
 // RunProviderForConn starts threads for running a DICOM server on "conn". This
 // function returns immediately; "conn" will be cleaned up in the background.
-func RunProviderForConn(conn net.Conn, params ServiceProviderParams) {
+func RunProviderForConn(ctx context.Context, conn net.Conn, params ServiceProviderParams) {
 	upcallStreamCh := make(chan upcallEvent, 128)
 	label := newUID("sc")
 	disp := newServiceDispatcher(label)
@@ -564,8 +565,18 @@ func RunProviderForConn(conn net.Conn, params ServiceProviderParams) {
 	go func() {
 		runStateMachineForServiceProvider(conn, upcallStreamCh, disp.downcallCh, label)
 	}()
-	for event := range upcallStreamCh {
-		disp.handleEvent(event)
+handleEvtLoop:
+	for {
+		select {
+		case event, ok := <-upcallStreamCh:
+			if ok {
+				break handleEvtLoop
+			}
+			disp.handleEvent(event)
+		case <-ctx.Done():
+			disp.downcallCh <- stateEvent{event: evt11}
+			continue handleEvtLoop
+		}
 	}
 	dicomlog.Vprintf(0, "dicom.serviceProvider(%s): Finished connection %p (remote: %+v)", label, conn, conn.RemoteAddr())
 	disp.close()
@@ -574,15 +585,21 @@ func RunProviderForConn(conn net.Conn, params ServiceProviderParams) {
 // Run listens to incoming connections, accepts them, and runs the DICOM
 // protocol. This function never returns.
 func (sp *ServiceProvider) Run() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	for {
 		conn, err := sp.listener.Accept()
 		if err != nil {
 			dicomlog.Vprintf(0, "dicom.serviceProvider(%s): Accept error: %v", sp.label, err)
-			continue
+			return
 		}
 		dicomlog.Vprintf(0, "dicom.serviceProvider(%s): Accepted connection %p (remote: %+v)", sp.label, conn, conn.RemoteAddr())
-		go func() { RunProviderForConn(conn, sp.params) }()
+		go func() { RunProviderForConn(ctx, conn, sp.params) }()
 	}
+}
+
+func (sp *ServiceProvider) Close() error {
+	return sp.listener.Close()
 }
 
 // ListenAddr returns the TCP address that the server is listening on. It is the
