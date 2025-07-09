@@ -5,6 +5,7 @@ package netdicom
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
 
@@ -582,19 +583,26 @@ handleEvtLoop:
 	disp.close()
 }
 
-// Run listens to incoming connections, accepts them, and runs the DICOM
-// protocol. This function never returns.
-func (sp *ServiceProvider) Run() {
+// ErrServerClosed is returned when the server is close
+var ErrServerClosed = errors.New("server closed")
+
+// Run listens to incoming connections, accepts them, and runs the DICOM protocol.
+// This function will blocks until error or sp.Close()
+func (sp *ServiceProvider) Run() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	for {
 		conn, err := sp.listener.Accept()
 		if err != nil {
+			if opErr, ok := err.(*net.OpError); ok && opErr.Op == "accept" {
+				dicomlog.Vprintf(0, "dicom.serviceProvider(%s): Server closed", sp.label)
+				return ErrServerClosed
+			}
 			dicomlog.Vprintf(0, "dicom.serviceProvider(%s): Accept error: %v", sp.label, err)
-			return
+			continue
 		}
 		dicomlog.Vprintf(0, "dicom.serviceProvider(%s): Accepted connection %p (remote: %+v)", sp.label, conn, conn.RemoteAddr())
-		go func() { RunProviderForConn(ctx, conn, sp.params) }()
+		go RunProviderForConn(ctx, conn, sp.params)
 	}
 }
 
