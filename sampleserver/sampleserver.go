@@ -415,5 +415,8 @@ func runSCP(port string, dir string, isSync bool, remoteAEs map[string]string, t
 	go func() {
 		fmt.Println(http.ListenAndServe("localhost:6060", nil))
 	}()
-	sp.Run()
+	err = sp.Run()
+	if err != nil {
+		panic(err)
+	}
 }

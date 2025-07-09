@@ -12,7 +12,7 @@ import (
 )
 
 func Test_ServiceProviderClose(t *testing.T) {
-	dicomlog.SetLevel(1)
+	dicomlog.SetLevel(0)
 	// setup 1: make a service provider
 	sp, err := NewServiceProvider(ServiceProviderParams{
 		CEcho: func(conn ConnectionState) dimse.Status {

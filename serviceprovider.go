@@ -593,16 +593,17 @@ func (sp *ServiceProvider) Run() error {
 	defer cancel()
 	for {
 		conn, err := sp.listener.Accept()
-		if err != nil {
-			if opErr, ok := err.(*net.OpError); ok && opErr.Op == "accept" {
-				dicomlog.Vprintf(0, "dicom.serviceProvider(%s): Server closed", sp.label)
-				return ErrServerClosed
-			}
+		switch {
+		case errors.Is(err, net.ErrClosed):
+			dicomlog.Vprintf(0, "dicom.serviceProvider(%s): Server closed", sp.label)
+			return ErrServerClosed
+		case err != nil:
 			dicomlog.Vprintf(0, "dicom.serviceProvider(%s): Accept error: %v", sp.label, err)
-			continue
+			return fmt.Errorf("dicom.serviceProvider accept connections: %w", err)
+		default:
+			dicomlog.Vprintf(0, "dicom.serviceProvider(%s): Accepted connection %p (remote: %+v)", sp.label, conn, conn.RemoteAddr())
+			go RunProviderForConn(ctx, conn, sp.params)
 		}
-		dicomlog.Vprintf(0, "dicom.serviceProvider(%s): Accepted connection %p (remote: %+v)", sp.label, conn, conn.RemoteAddr())
-		go RunProviderForConn(ctx, conn, sp.params)
 	}
 }
 
