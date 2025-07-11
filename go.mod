@@ -15,4 +15,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/grailbio/go-dicom => github.com/segmed/go-dicom v0.0.0-20250707010707-9fbf3e5098e8
+replace github.com/grailbio/go-dicom => github.com/segmed/go-dicom v0.0.0-20250711000626-330cfb7d1609
