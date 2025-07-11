@@ -3,9 +3,12 @@
 package netdicom
 
 import (
+	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
+	"time"
 
 	dicom "github.com/grailbio/go-dicom"
 	"github.com/grailbio/go-dicom/dicomio"
@@ -530,7 +533,7 @@ func getConnState(conn net.Conn) (cs ConnectionState) {
 
 // RunProviderForConn starts threads for running a DICOM server on "conn". This
 // function returns immediately; "conn" will be cleaned up in the background.
-func RunProviderForConn(conn net.Conn, params ServiceProviderParams) {
+func RunProviderForConn(ctx context.Context, conn net.Conn, params ServiceProviderParams) {
 	upcallStreamCh := make(chan upcallEvent, 128)
 	label := newUID("sc")
 	disp := newServiceDispatcher(label)
@@ -564,25 +567,54 @@ func RunProviderForConn(conn net.Conn, params ServiceProviderParams) {
 	go func() {
 		runStateMachineForServiceProvider(conn, upcallStreamCh, disp.downcallCh, label)
 	}()
-	for event := range upcallStreamCh {
-		disp.handleEvent(event)
+handleEvtLoop:
+	for {
+		select {
+		case event, ok := <-upcallStreamCh:
+			if !ok {
+				break handleEvtLoop
+			}
+			disp.handleEvent(event)
+		case <-ctx.Done():
+			disp.downcallCh <- stateEvent{event: evt11}
+			continue handleEvtLoop
+		}
 	}
 	dicomlog.Vprintf(0, "dicom.serviceProvider(%s): Finished connection %p (remote: %+v)", label, conn, conn.RemoteAddr())
 	disp.close()
 }
 
-// Run listens to incoming connections, accepts them, and runs the DICOM
-// protocol. This function never returns.
-func (sp *ServiceProvider) Run() {
+// ErrServerClosed is returned when the server is close
+var ErrServerClosed = errors.New("server closed")
+
+// Run listens to incoming connections, accepts them, and runs the DICOM protocol.
+// This function will blocks until error or sp.Close()
+func (sp *ServiceProvider) Run() error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	for {
 		conn, err := sp.listener.Accept()
-		if err != nil {
-			dicomlog.Vprintf(0, "dicom.serviceProvider(%s): Accept error: %v", sp.label, err)
+		if errors.Is(err, net.ErrClosed) {
+			dicomlog.Vprintf(0, "dicom.serviceProvider(%s): Server closed", sp.label)
+			return ErrServerClosed
+		}
+		if ne, ok := err.(net.Error); ok && ne.Temporary() {
+			time.Sleep(time.Millisecond * 100)
+			dicomlog.Vprintf(0, "dicom.serviceProvider(%s): Accept temporary error: %v", sp.label, err)
 			continue
 		}
+		if err != nil {
+			dicomlog.Vprintf(0, "dicom.serviceProvider(%s): Accept error: %v", sp.label, err)
+			return fmt.Errorf("dicom.serviceProvider accept connections: %w", err)
+		}
+
 		dicomlog.Vprintf(0, "dicom.serviceProvider(%s): Accepted connection %p (remote: %+v)", sp.label, conn, conn.RemoteAddr())
-		go func() { RunProviderForConn(conn, sp.params) }()
+		go RunProviderForConn(ctx, conn, sp.params)
 	}
+}
+
+func (sp *ServiceProvider) Close() error {
+	return sp.listener.Close()
 }
 
 // ListenAddr returns the TCP address that the server is listening on. It is the

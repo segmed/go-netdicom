@@ -49,7 +49,7 @@ func runSCPTest(t testing.TB, port, aeTitle string, remoteAEs map[string]string,
 	}
 	sp, err := netdicom.NewServiceProvider(params, port)
 	require.NoError(t, err)
-	sp.Run()
+	require.NoError(t, sp.Run())
 }
 
 // newTestClient returns a dicom Client for testing

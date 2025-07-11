@@ -1,6 +1,7 @@
 package fuzze2e
 
 import (
+	"context"
 	"flag"
 	"log"
 	"net"
@@ -29,7 +30,8 @@ func startServer(faults netdicom.FaultInjector) net.Listener {
 				return dimse.Status{Status: dimse.StatusSuccess}
 			},
 		}
-
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 		for {
 			conn, err := listener.Accept()
 			if err != nil {
@@ -37,7 +39,7 @@ func startServer(faults netdicom.FaultInjector) net.Listener {
 				break
 			}
 			log.Printf("Accepted connection %v", conn)
-			netdicom.RunProviderForConn(conn, params)
+			netdicom.RunProviderForConn(ctx, conn, params)
 		}
 	}()
 	return listener

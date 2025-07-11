@@ -25,6 +25,7 @@ import (
 
 	"github.com/grailbio/go-dicom"
 	"github.com/grailbio/go-dicom/dicomio"
+	"github.com/grailbio/go-dicom/dicomlog"
 	"github.com/grailbio/go-dicom/dicomtag"
 	"github.com/grailbio/go-dicom/dicomuid"
 	"github.com/grailbio/go-netdicom"
@@ -335,6 +336,8 @@ func main() {
 		log.Panicf("Failed to parse -remote-ae flag: %v", err)
 	}
 
+	dicomlog.SetLevel(2)
+
 	var tlsConfig *tls.Config
 	if *tlsKeyFlag != "" {
 		cert, err := tls.LoadX509KeyPair(*tlsCertFlag, *tlsKeyFlag)
@@ -412,5 +415,8 @@ func runSCP(port string, dir string, isSync bool, remoteAEs map[string]string, t
 	go func() {
 		fmt.Println(http.ListenAndServe("localhost:6060", nil))
 	}()
-	sp.Run()
+	err = sp.Run()
+	if err != nil {
+		panic(err)
+	}
 }

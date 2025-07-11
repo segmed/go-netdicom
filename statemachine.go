@@ -918,9 +918,9 @@ func runOneStep(sm *stateMachine) {
 		}
 		dicomlog.Vprintf(0, "dicom.StateMachine: Unknown state transition:")
 		for _, s := range strings.Split(msg, "\n") {
-			dicomlog.Vprintf(0, s)
+			dicomlog.Vprint(0, s)
 		}
-		dicomlog.Vprintf(0, msg)
+		dicomlog.Vprint(0, msg)
 
 		action = actionAa2 // This will force connection abortion
 	}
