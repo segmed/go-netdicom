@@ -39,7 +39,7 @@ func startServer(faults netdicom.FaultInjector) net.Listener {
 				break
 			}
 			log.Printf("Accepted connection %v", conn)
-			netdicom.RunProviderForConn(ctx, conn, params)
+			netdicom.RunProviderForConn(ctx, conn, params, nil)
 		}
 	}()
 	return listener

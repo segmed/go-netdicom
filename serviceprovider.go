@@ -144,6 +144,7 @@ func handleCFind(
 
 func handleCMove(
 	params ServiceProviderParams,
+	asyncSemaphore chan struct{},
 	connState ConnectionState,
 	c *dimse.CMoveRq, data []byte,
 	cs *serviceCommandState) {
@@ -191,12 +192,24 @@ func handleCMove(
 			break
 		}
 		dicomlog.Vprintf(0, "dicom.serviceProvider: C-MOVE: Sending %v to %v(%s)", resp.Path, c.MoveDestination, remoteHostPort)
-		err := runCStoreOnNewAssociation(params.AETitle, c.MoveDestination, remoteHostPort, resp.DataSet)
-		if err != nil {
-			dicomlog.Vprintf(0, "dicom.serviceProvider: C-MOVE: C-store of %v to %v(%v) failed: %v", resp.Path, c.MoveDestination, remoteHostPort, err)
-			numFailures++
-		} else {
+		if asyncSemaphore != nil {
+			asyncSemaphore <- struct{}{}
+			go func() {
+				defer func() { <-asyncSemaphore }()
+				err := runCStoreOnNewAssociation(params.AETitle, c.MoveDestination, remoteHostPort, resp.DataSet)
+				if err != nil {
+					dicomlog.Vprintf(0, "dicom.serviceProvider: C-MOVE: C-store of %v to %v(%v) failed: %v", resp.Path, c.MoveDestination, remoteHostPort, err)
+				}
+			}()
 			numSuccesses++
+		} else {
+			err := runCStoreOnNewAssociation(params.AETitle, c.MoveDestination, remoteHostPort, resp.DataSet)
+			if err != nil {
+				dicomlog.Vprintf(0, "dicom.serviceProvider: C-MOVE: C-store of %v to %v(%v) failed: %v", resp.Path, c.MoveDestination, remoteHostPort, err)
+				numFailures++
+			} else {
+				numSuccesses++
+			}
 		}
 		cs.sendMessage(&dimse.CMoveRsp{
 			AffectedSOPClassUID:            c.AffectedSOPClassUID,
@@ -328,6 +341,12 @@ type ServiceProviderParams struct {
 	// map should be nonempty iff the server supports CMove.
 	RemoteAEs map[string]string
 
+	// Limit the number of thread for sending DICOMs back in async mode
+	// by default, this is 0, means run in sync mode, set this to a number > 0, means run in async mode
+	// sync mode: send DICOMs each by each, hold the CMove connection until all done
+	// async mode: send DICOMs in parallel and release the CMove connection as soon as posible
+	AsyncThreadsLimit int
+
 	// Called on C_ECHO request. If nil, a C-ECHO call will produce an error response.
 	//
 	// TODO(saito) Support a default C-ECHO callback?
@@ -443,7 +462,8 @@ type ServiceProvider struct {
 	params   ServiceProviderParams
 	listener net.Listener
 	// Label is a unique string used in log messages to identify this provider.
-	label string
+	label          string
+	asyncSemaphore chan struct{}
 }
 
 func writeElementsToBytes(elems []*dicom.Element, transferSyntaxUID string) ([]byte, error) {
@@ -533,7 +553,7 @@ func getConnState(conn net.Conn) (cs ConnectionState) {
 
 // RunProviderForConn starts threads for running a DICOM server on "conn". This
 // function returns immediately; "conn" will be cleaned up in the background.
-func RunProviderForConn(ctx context.Context, conn net.Conn, params ServiceProviderParams) {
+func RunProviderForConn(ctx context.Context, conn net.Conn, params ServiceProviderParams, asyncSemaphore chan struct{}) {
 	upcallStreamCh := make(chan upcallEvent, 128)
 	label := newUID("sc")
 	disp := newServiceDispatcher(label)
@@ -554,7 +574,7 @@ func RunProviderForConn(ctx context.Context, conn net.Conn, params ServiceProvid
 		})
 	disp.registerCallback(dimse.CommandFieldCMoveRq,
 		func(msg dimse.Message, data []byte, cs *serviceCommandState) {
-			handleCMove(params, getConnState(conn), msg.(*dimse.CMoveRq), data, cs)
+			handleCMove(params, asyncSemaphore, getConnState(conn), msg.(*dimse.CMoveRq), data, cs)
 		})
 	disp.registerCallback(dimse.CommandFieldCGetRq,
 		func(msg dimse.Message, data []byte, cs *serviceCommandState) {
@@ -592,6 +612,9 @@ var ErrServerClosed = errors.New("server closed")
 func (sp *ServiceProvider) Run() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	if sp.params.AsyncThreadsLimit > 0 {
+		sp.asyncSemaphore = make(chan struct{}, sp.params.AsyncThreadsLimit)
+	}
 	for {
 		conn, err := sp.listener.Accept()
 		if errors.Is(err, net.ErrClosed) {
@@ -609,7 +632,7 @@ func (sp *ServiceProvider) Run() error {
 		}
 
 		dicomlog.Vprintf(0, "dicom.serviceProvider(%s): Accepted connection %p (remote: %+v)", sp.label, conn, conn.RemoteAddr())
-		go RunProviderForConn(ctx, conn, sp.params)
+		go RunProviderForConn(ctx, conn, sp.params, sp.asyncSemaphore)
 	}
 }
 
